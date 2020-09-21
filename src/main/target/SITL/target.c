@@ -108,13 +108,13 @@ void updateState(const fdm_packet* pkt) {
     y = constrain(-pkt->imu_linear_acceleration_xyz[1] * ACC_SCALE, -32767, 32767);
     z = constrain(-pkt->imu_linear_acceleration_xyz[2] * ACC_SCALE, -32767, 32767);
     fakeAccSet(fakeAccDev, x, y, z);
-//    printf("[acc]%lf,%lf,%lf\n", pkt->imu_linear_acceleration_xyz[0], pkt->imu_linear_acceleration_xyz[1], pkt->imu_linear_acceleration_xyz[2]);
+    printf("[acc]%lf,%lf,%lf\n", pkt->imu_linear_acceleration_xyz[0], pkt->imu_linear_acceleration_xyz[1], pkt->imu_linear_acceleration_xyz[2]);
 
     x = constrain(pkt->imu_angular_velocity_rpy[0] * GYRO_SCALE * RAD2DEG, -32767, 32767);
     y = constrain(-pkt->imu_angular_velocity_rpy[1] * GYRO_SCALE * RAD2DEG, -32767, 32767);
     z = constrain(-pkt->imu_angular_velocity_rpy[2] * GYRO_SCALE * RAD2DEG, -32767, 32767);
     fakeGyroSet(fakeGyroDev, x, y, z);
-//    printf("[gyr]%lf,%lf,%lf\n", pkt->imu_angular_velocity_rpy[0], pkt->imu_angular_velocity_rpy[1], pkt->imu_angular_velocity_rpy[2]);
+    printf("[gyr]%lf,%lf,%lf\n", pkt->imu_angular_velocity_rpy[0], pkt->imu_angular_velocity_rpy[1], pkt->imu_angular_velocity_rpy[2]);
 
 #if !defined(USE_IMU_CALC)
 #if defined(SET_IMU_FROM_EULER)
@@ -426,7 +426,11 @@ static bool pwmEnableMotors(void)
 
 static void pwmWriteMotor(uint8_t index, float value)
 {
-    motorsPwm[index] = value - idlePulse;
+    // For ArduCopter
+    //motorsPwm[index] = value - idlePulse;
+
+    // For Bicopter
+    motorsPwm[index] = value;
 }
 
 static void pwmWriteMotorInt(uint8_t index, uint16_t value)
@@ -448,15 +452,24 @@ static void pwmCompleteMotorUpdate(void)
     // send to simulator
     // for gazebo8 ArduCopterPlugin remap, normal range = [0.0, 1.0], 3D rang = [-1.0, 1.0]
 
-    double outScale = 1000.0;
-    if (featureIsEnabled(FEATURE_3D)) {
-        outScale = 500.0;
-    }
+    //double outScale = 1000.0;
+    //if (featureIsEnabled(FEATURE_3D)) {
+    //    outScale = 500.0;
+    //}
 
-    pwmPkt.motor_speed[3] = motorsPwm[0] / outScale;
-    pwmPkt.motor_speed[0] = motorsPwm[1] / outScale;
-    pwmPkt.motor_speed[1] = motorsPwm[2] / outScale;
-    pwmPkt.motor_speed[2] = motorsPwm[3] / outScale;
+    // for ArduCopter quad
+    //pwmPkt.motor_speed[3] = motorsPwm[0] / outScale;
+    //pwmPkt.motor_speed[0] = motorsPwm[1] / outScale;
+    //pwmPkt.motor_speed[1] = motorsPwm[2] / outScale;
+    //pwmPkt.motor_speed[2] = motorsPwm[3] / outScale;
+
+    // For Bi-copter
+    // Motor 0 and 1 are left and right motors respectively. No need to scale
+    // Use pwm 2 and 3 to send servo 0 and 1 (left and right servo).
+    pwmPkt.motor_speed[0] = motorsPwm[0];
+    pwmPkt.motor_speed[1] = motorsPwm[1];
+    pwmPkt.motor_speed[2] = servosPwm[0];
+    pwmPkt.motor_speed[3] = servosPwm[1];
 
     // get one "fdm_packet" can only send one "servo_packet"!!
     if (pthread_mutex_trylock(&updateLock) != 0) return;
@@ -465,6 +478,7 @@ static void pwmCompleteMotorUpdate(void)
 }
 
 void pwmWriteServo(uint8_t index, float value) {
+    // Servo 0 and 1 are used for left and right servo for bicopter
     servosPwm[index] = value;
 }
 
