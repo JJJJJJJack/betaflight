@@ -20,6 +20,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 
@@ -213,6 +214,11 @@ void pidInit(const pidProfile_t *pidProfile)
     pidInitConfig(pidProfile);
 #ifdef USE_RPM_FILTER
     rpmFilterInit(rpmFilterConfig());
+#endif
+    pidRuntime.MIXER_MODE = mixerConfig()->mixerMode;
+#ifdef USE_SO3
+    pidRuntime.desiredYAW = 0;
+    pidRuntime.arming_state = false;
 #endif
 }
 

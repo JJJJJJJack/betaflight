@@ -24,6 +24,7 @@
 #include "common/time.h"
 #include "common/filter.h"
 #include "common/axis.h"
+#include "flight/mixer.h"
 
 #include "pg/pg.h"
 
@@ -51,6 +52,9 @@
 
 // Anti gravity I constant
 #define AG_KI 21.586988f;
+
+// USE SO3 controller
+//#define USE_SO3
 
 #define ITERM_ACCELERATOR_GAIN_OFF 1000
 #define ITERM_ACCELERATOR_GAIN_MAX 30000
@@ -290,6 +294,14 @@ typedef struct pidRuntime_s {
     uint8_t itermRelaxCutoff;
 #endif
 
+#ifdef USE_SO3
+    float desiredYAW;
+    bool arming_state;
+    float gyroRateDterm[XYZ_AXIS_COUNT];
+    float previousGyroRateDterm[XYZ_AXIS_COUNT];
+    float pidSetpointDelta[XYZ_AXIS_COUNT];
+#endif
+
 #ifdef USE_ABSOLUTE_CONTROL
     float acCutoff;
     float acGain;
@@ -360,6 +372,7 @@ typedef struct pidRuntime_s {
     ffInterpolationType_t ffFromInterpolatedSetpoint;
     float ffSmoothFactor;
 #endif
+    int MIXER_MODE;
 } pidRuntime_t;
 
 extern pidRuntime_t pidRuntime;

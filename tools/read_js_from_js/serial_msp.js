@@ -2,6 +2,7 @@
 
 const THREE = require('three');
 const net = require('net');
+const SerialPort = require('serialport');
 const ROSLIB = require('roslib');
 
 const DEBUG_INFO = {
@@ -12,8 +13,9 @@ const DEBUG_INFO = {
 
 let DEBUG_LEVEL = DEBUG_INFO.DEBUG_SILENT
 var FREQ = 50    // in Hz
-var ip = '127.0.0.1'
-var port = 5762 // MSP port on UART2
+//var DEVPATH = '/home/jack/virtual-tty'
+var DEVPATH = '/dev/ttyACM0'
+var BAUDRATE = 115200
 // via MSP:
 const MSP = require('./node-msp') // https://github.com/cs8425/node-msp
 var msp = new MSP()
@@ -43,7 +45,6 @@ var SaturateChannel = function(value){
     return value;
 }
 
-
 /***************************************
            Setting up ROS
 ***************************************/
@@ -68,6 +69,12 @@ var imuTopic = new ROSLIB.Topic({
     ros : ros,
     name : '/imu_data',
     messageType : 'sensor_msgs/Imu'
+});
+
+var poseTopic = new ROSLIB.Topic({
+    ros : ros,
+    name : '/pose',
+    messageType : 'nav_msgs/Odometry'
 });
 
 var attitudeSetpointTopic = new ROSLIB.Topic({
@@ -110,8 +117,9 @@ var armingTopic = new ROSLIB.Topic({
              MSP usage
 **********************************/
 msp.on('frame', function(err, frame){
+    //console.log((new Date()).getTime(), 'frame', JSON.stringify(frame))
     if(err) return
-    //	console.log((new Date()).getTime(), 'frame', JSON.stringify(frame))
+
 
     //	var obj = msp.parseFrame(frame)
     //	console.log((new Date()).getTime(), 'data', obj)
@@ -143,7 +151,8 @@ msp.on('data', function(obj){
 	break;
     }
     case msp.Codes.MSP_ATTITUDE:{
-	Attitude_Quat.setFromEuler(new THREE.Euler(obj.z, obj.y, obj.x,'ZYX'));
+	Attitude_Quat.setFromEuler(new THREE.Euler(obj.x/57.3, -obj.y/57.3, obj.z/57.3));
+	console.log('roll: ', obj.x, '  pitch: ', -obj.y, 'yaw: ', obj.z);
 	if(DEBUG_LEVEL >= DEBUG_INFO.DEBUG_MINOR && THROTTLE_PRINT++ % FREQ == 0){
 	    console.log('ATTITUDE data')
 	}
@@ -193,30 +202,6 @@ msp.on('data', function(obj){
 	break;
     }
     }
-})
-
-var client = net.connect(port, ip, function(){
-    console.log('connected to FC!')
-
-    msp.setSender(function(data){
-	//console.log('_write', data)
-	client.write(data)
-    })
-
-    //	msp.pull_FC_info()
-
-    msp.send_message(msp.Codes.MSP_RX_MAP, false, false);
-})
-client.on('error', function(err){
-    console.log('FC err', err)
-    js.close()
-})
-client.on('data', function(data){
-    //console.log(data)
-    msp.readbytes(data)
-})
-client.on('end', function(){
-    console.log('disconnected from server')
 })
 
 ////////////////////////
@@ -319,6 +304,45 @@ js.on('axis', function(data){
     //	msp.send_message(msp.Codes.MSP_SET_RAW_RC, channelValues);
 });
 
+
+
+/***************************************
+        Setting up Serial Comm
+***************************************/
+//const Readline = SerialPort.parsers.Readline
+const Readline = require('@serialport/parser-readline')
+const port = new SerialPort(DEVPATH, {baudRate: BAUDRATE})
+const parser = new Readline()
+port.pipe(parser)
+
+port.on('open', function(){
+    console.log('Connected to FC!');
+    msp.setSender(function(data){
+	//data = Buffer.concat([data, Buffer.from('\n')])
+	port.write(data);	
+	//console.log('Send: ', data)
+    });
+    msp.send_message(msp.Codes.MSP_RX_MAP, false, false);    
+});
+
+port.on('end', function(){
+    console.log('disconnected from server');
+});
+
+port.on('error', function(err){
+    console.log('FC err', err);
+    js.close();
+});
+
+//port.on('data', console.log)
+
+port.on('data', function(data){
+    //console.log(data)
+    msp.readbytes(data);
+    port.drain()
+});
+
+
 function publishROS() {
     // IMU message
     var imuMessage = new ROSLIB.Message({
@@ -349,6 +373,23 @@ function publishROS() {
     if(DEBUG_LEVEL >= DEBUG_INFO.DEBUG_ALL){
 	console.log('Publishing IMU data');
     }
+    // pose message
+    var poseMessage = new ROSLIB.Message({
+	header : {
+	    frame_id : "world"
+	},
+	pose : {
+	    pose :{
+		orientation : {
+		    x : Attitude_Quat.x,
+		    y : Attitude_Quat.y,
+		    z : Attitude_Quat.z,
+		    w : Attitude_Quat.w
+		},
+	    }
+	}
+    });
+    poseTopic.publish(poseMessage); 
 }
 
 
@@ -356,16 +397,21 @@ function communicateMSP() {
     if(DEBUG_LEVEL >= DEBUG_INFO.DEBUG_ALL){
 	console.log('Acquiring MSP');
     }
-    var buf = Buffer.alloc(channelValues.length*2)
-    for(var i=0; i<channelValues.length; i++){
-	buf.writeUInt16LE(channelValues[i] ,2*i)
+    if(msp.sender == null)
+	console.log('Wait until the serial port is connected...')
+    // wait until the serial port sender is initialized
+    if(msp.sender != null){
+	var buf = Buffer.alloc(channelValues.length*2)
+	for(var i=0; i<channelValues.length; i++){
+	    buf.writeUInt16LE(channelValues[i] ,2*i)
+	}
+	//msp.send_message(msp.Codes.MSP_SET_RAW_RC, buf)
+	msp.send_message(msp.Codes.MSP_RAW_IMU);
+	//msp.send_message(msp.Codes.MSP_STATUS_EX)
+	msp.send_message(msp.Codes.MSP_ATTITUDE);
+	//msp.send_message(msp.Codes.MSP_RC);
+	publishROS();
     }
-    msp.send_message(msp.Codes.MSP_SET_RAW_RC, buf)
-    //msp.send_message(msp.Codes.MSP_RAW_IMU);
-    msp.send_message(msp.Codes.MSP_STATUS_EX)
-    //msp.send_message(msp.Codes.MSP_ATTITUDE);
-    //msp.send_message(msp.Codes.MSP_RC);
-    publishROS();
     var t = setTimeout(communicateMSP, 1000.0/FREQ);
 }
 communicateMSP()

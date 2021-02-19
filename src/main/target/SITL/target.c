@@ -18,6 +18,8 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
+//#define DEBUG_INFO
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +46,7 @@ const timerHardware_t timerHardware[1]; // unused
 
 #include "drivers/accgyro/accgyro_fake.h"
 #include "flight/imu.h"
+#include "flight/mixer.h"
 
 #include "config/feature.h"
 #include "config/config.h"
@@ -57,7 +60,7 @@ const timerHardware_t timerHardware[1]; // unused
 #include "dyad.h"
 #include "target/SITL/udplink.h"
 
-uint32_t SystemCoreClock;
+uint32_t SystemCoreClock, clockStep = 0;
 
 static fdm_packet fdmPkt;
 static servo_packet pwmPkt;
@@ -69,6 +72,8 @@ static bool workerRunning = true;
 static udpLink_t stateLink, pwmLink;
 static pthread_mutex_t updateLock;
 static pthread_mutex_t mainLoopLock;
+static int MIXER_MODE;
+DEBUGGING_PRINT DEBUG_LEVEL = DEBUG_SILENT;
 
 int timeval_sub(struct timespec *result, struct timespec *x, struct timespec *y);
 
@@ -77,8 +82,8 @@ int lockMainPID(void) {
 }
 
 #define RAD2DEG (180.0 / M_PI)
-#define ACC_SCALE (256 / 9.80665)
-#define GYRO_SCALE (16.4)
+#define ACC_SCALE (512 / 9.80665)
+#define GYRO_SCALE (16.4 / 4)
 void sendMotorUpdate() {
     udpSend(&pwmLink, &pwmPkt, sizeof(servo_packet));
 }
@@ -103,18 +108,25 @@ void updateState(const fdm_packet* pkt) {
         return;
     }
 
+    if(DEBUG_LEVEL >= DEBUG_MINOR){
+      if(clockStep++ % 500 == 0){
+	printf("Time: %8.6f\n", pkt->timestamp);
+	printf("[acc]%lf,%lf,%lf\n", pkt->imu_linear_acceleration_xyz[0], pkt->imu_linear_acceleration_xyz[1], pkt->imu_linear_acceleration_xyz[2]);
+	printf("[gyr]%lf,%lf,%lf\n", pkt->imu_angular_velocity_rpy[0], pkt->imu_angular_velocity_rpy[1], pkt->imu_angular_velocity_rpy[2]);
+      }
+    }
+    
+
     int16_t x,y,z;
     x = constrain(-pkt->imu_linear_acceleration_xyz[0] * ACC_SCALE, -32767, 32767);
     y = constrain(-pkt->imu_linear_acceleration_xyz[1] * ACC_SCALE, -32767, 32767);
     z = constrain(-pkt->imu_linear_acceleration_xyz[2] * ACC_SCALE, -32767, 32767);
     fakeAccSet(fakeAccDev, x, y, z);
-    printf("[acc]%lf,%lf,%lf\n", pkt->imu_linear_acceleration_xyz[0], pkt->imu_linear_acceleration_xyz[1], pkt->imu_linear_acceleration_xyz[2]);
 
     x = constrain(pkt->imu_angular_velocity_rpy[0] * GYRO_SCALE * RAD2DEG, -32767, 32767);
-    y = constrain(-pkt->imu_angular_velocity_rpy[1] * GYRO_SCALE * RAD2DEG, -32767, 32767);
-    z = constrain(-pkt->imu_angular_velocity_rpy[2] * GYRO_SCALE * RAD2DEG, -32767, 32767);
+    y = constrain(pkt->imu_angular_velocity_rpy[1] * GYRO_SCALE * RAD2DEG, -32767, 32767);
+    z = constrain(pkt->imu_angular_velocity_rpy[2] * GYRO_SCALE * RAD2DEG, -32767, 32767);
     fakeGyroSet(fakeGyroDev, x, y, z);
-    printf("[gyr]%lf,%lf,%lf\n", pkt->imu_angular_velocity_rpy[0], pkt->imu_angular_velocity_rpy[1], pkt->imu_angular_velocity_rpy[2]);
 
 #if !defined(USE_IMU_CALC)
 #if defined(SET_IMU_FROM_EULER)
@@ -141,7 +153,7 @@ void updateState(const fdm_packet* pkt) {
     double t3 = +2.0 * (qw * qz + qx * qy);
     double t4 = +1.0 - 2.0 * (ysqr + qz * qz);
     zf = atan2(t3, t4) * RAD2DEG;
-    imuSetAttitudeRPY(xf, -yf, zf); // yes! pitch was inverted!!
+    imuSetAttitudeRPY(xf, yf, zf); // yes! pitch was inverted!!
 #else
     imuSetAttitudeQuat(pkt->imu_orientation_quat[0], pkt->imu_orientation_quat[1], pkt->imu_orientation_quat[2], pkt->imu_orientation_quat[3]);
 #endif
@@ -242,7 +254,6 @@ void systemInit(void) {
         printf("Create udpWorker error!\n");
         exit(1);
     }
-
     // serial can't been slow down
     rescheduleTask(TASK_SERIAL, 1);
 }
@@ -426,11 +437,15 @@ static bool pwmEnableMotors(void)
 
 static void pwmWriteMotor(uint8_t index, float value)
 {
-    // For ArduCopter
-    //motorsPwm[index] = value - idlePulse;
+  // For ArduCopter
+  if(MIXER_MODE == MIXER_QUADX){
+    motorsPwm[index] = value - idlePulse;
+  }
 
-    // For Bicopter
+  // For Bicopter
+  if(MIXER_MODE == MIXER_BICOPTER){
     motorsPwm[index] = value;
+  }
 }
 
 static void pwmWriteMotorInt(uint8_t index, uint16_t value)
@@ -449,32 +464,38 @@ bool pwmIsMotorEnabled(uint8_t index) {
 
 static void pwmCompleteMotorUpdate(void)
 {
-    // send to simulator
-    // for gazebo8 ArduCopterPlugin remap, normal range = [0.0, 1.0], 3D rang = [-1.0, 1.0]
-
-    //double outScale = 1000.0;
-    //if (featureIsEnabled(FEATURE_3D)) {
-    //    outScale = 500.0;
-    //}
-
-    // for ArduCopter quad
-    //pwmPkt.motor_speed[3] = motorsPwm[0] / outScale;
-    //pwmPkt.motor_speed[0] = motorsPwm[1] / outScale;
-    //pwmPkt.motor_speed[1] = motorsPwm[2] / outScale;
-    //pwmPkt.motor_speed[2] = motorsPwm[3] / outScale;
-
-    // For Bi-copter
+  // send to simulator
+  // for gazebo8 ArduCopterPlugin remap, normal range = [0.0, 1.0], 3D rang = [-1.0, 1.0]
+  
+  // for ArduCopter quad
+  if(MIXER_MODE == MIXER_QUADX){
+    double outScale = 1000.0;
+    if (featureIsEnabled(FEATURE_3D)) {
+        outScale = 500.0;
+    }
+  
+    pwmPkt.motor_speed[3] = motorsPwm[0] / outScale;
+    pwmPkt.motor_speed[0] = motorsPwm[1] / outScale;
+    pwmPkt.motor_speed[1] = motorsPwm[2] / outScale;
+    pwmPkt.motor_speed[2] = motorsPwm[3] / outScale;
+  }
+    
+  // For Bi-copter
+  if(MIXER_MODE == MIXER_BICOPTER){
     // Motor 0 and 1 are left and right motors respectively. No need to scale
     // Use pwm 2 and 3 to send servo 0 and 1 (left and right servo).
     pwmPkt.motor_speed[0] = motorsPwm[0];
     pwmPkt.motor_speed[1] = motorsPwm[1];
     pwmPkt.motor_speed[2] = servosPwm[0];
     pwmPkt.motor_speed[3] = servosPwm[1];
+  }
 
-    // get one "fdm_packet" can only send one "servo_packet"!!
-    if (pthread_mutex_trylock(&updateLock) != 0) return;
-    udpSend(&pwmLink, &pwmPkt, sizeof(servo_packet));
-//    printf("[pwm]%u:%u,%u,%u,%u\n", idlePulse, motorsPwm[0], motorsPwm[1], motorsPwm[2], motorsPwm[3]);
+  // get one "fdm_packet" can only send one "servo_packet"!!
+  if (pthread_mutex_trylock(&updateLock) != 0) return;
+  udpSend(&pwmLink, &pwmPkt, sizeof(servo_packet));
+  if(DEBUG_LEVEL >= DEBUG_ALL){
+    printf("[pwm]%u:%u,%u,%u,%u\n", idlePulse, motorsPwm[0], motorsPwm[1], motorsPwm[2], motorsPwm[3]);
+  }
 }
 
 void pwmWriteServo(uint8_t index, float value) {
@@ -610,4 +631,16 @@ void spektrumBind(rxConfig_t *rxConfig)
 void unusedPinsInit(void)
 {
     printf("unusedPinsInit\n");
+    MIXER_MODE = mixerConfig()->mixerMode;
+    switch(MIXER_MODE){
+    case MIXER_QUADX:
+      printf("\nRunning Quad X configuration.\n");
+      break;
+    case MIXER_BICOPTER:
+      printf("\nRunning Bi-Copter configuration.\n");
+      break;
+    default:
+      break;
+    }
+
 }
