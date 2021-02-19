@@ -1064,7 +1064,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         gyroRateDterm[axis] = pidRuntime.dtermLowpassApplyFn((filter_t *) &pidRuntime.dtermLowpass[axis], gyroRateDterm[axis]);
         gyroRateDterm[axis] = pidRuntime.dtermLowpass2ApplyFn((filter_t *) &pidRuntime.dtermLowpass2[axis], gyroRateDterm[axis]);
 
+        #ifdef USE_SO3
         pidRuntime.gyroRateDterm[axis] = gyroRateDterm[axis];
+        #endif
     }
 
     rotateItermAndAxisError();
@@ -1236,7 +1238,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
     #ifdef USE_RC_SMOOTHING_FILTER
             pidSetpointDelta = applyRcSmoothingDerivativeFilter(axis, pidSetpointDelta);
+            #ifdef USE_SO3
             pidRuntime.pidSetpointDelta[axis] = pidSetpointDelta;
+            #endif
     #endif // USE_RC_SMOOTHING_FILTER
 
             // -----calculate D component

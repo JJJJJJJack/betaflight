@@ -31,6 +31,7 @@ resource SONAR_TRIGGER NONE
 resource SONAR_ECHO NONE
 resource SERVO 1 A01
 resource SERVO 2 A08
+save
 ```
 
 ## OMNIBUSF4SD(OBSD)
