@@ -816,6 +816,22 @@ void getRotVecFromQuaternion(float quaternion[4], float * rotVec)
     }
 }
 
+void rotateframe(float quaternion[4], float rotVec[3],float * errvec)
+{
+    float n = sqrt(quaternion[0] * quaternion[0] + quaternion[1] * quaternion[1] + quaternion[2] * quaternion[2] + quaternion[3] * quaternion[3]);
+    float a = quaternion[0] / n;
+    float b = quaternion[1] / n;
+    float c = quaternion[2] / n;
+    float d = quaternion[3] / n;
+    float e = ((a * 0.0 - -b * rotVec[0]) - -c * rotVec[1]) - -d * rotVec[2];
+    float f = ((a * rotVec[0] + -b * 0.0) + -c * rotVec[2]) - -d * rotVec[1];
+    float g = ((a * rotVec[1] - -b * rotVec[2]) + -c * 0.0) + -d * rotVec[0];
+    float h = ((a * rotVec[2] + -b * rotVec[1]) - -c * rotVec[0]) + -d * 0.0;
+    errvec[0] = ((e * b + f * a) + g * d) - h * c;
+    errvec[1] = ((e * c - f * d) + g * a) + h * b;
+    errvec[2] = ((e * d + f * c) - g * b) + h * a;
+}
+
 void arrayCrossProduct(float array1[3], float array2[3], float * result)
 {
     //[a0 a1 a2]   x    [b0 b1 b2]
@@ -847,20 +863,47 @@ float conv2std(float input_angle)
     return input_angle;
 }
 
+// Integration of psi stick input to the desired psi
+// Input:
+//     psi_sp_diff: Stick input
+//     eulerAngle[3]: roll, pitch, yaw
+//     armed: Current arm state
+//     armed_prev: Last arm state
+// Output:
+//     psi_des: Pointer to the desired psi
+void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  armed_prev, float * psi_des)
+{
+  float psi = eulerAngle[2];
+  
+  if((armed_prev != armed) && armed) {
+    /*  if ARMed */
+    *psi_des = psi;
+  }
+  
+  if ((psi_sp_diff < 0.01) &&(psi_sp_diff > -0.01)){
+    /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
+    //float psi_integral = psi + psi_sp_diff;
+    *psi_des = psi + psi_sp_diff;
+  }
+}
+
+
 // Implementing the SO(3) controller from Paper
 // High Performance Full Attitude Control of a Quadrotor on SO(3)
 // Input: 
 //          attitudeDesire : desired attitude (roll pitch yaw) in rad.
 //          attitudeCurrent: current attitude (roll pitch yaw) in rad.
 //          angularRate    : angular rate from gyro (roll pitch yaw) in rad/s
+// Output:
 //          pidSum         : Output for the roll pitch and yaw control effort.
 void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3], float angularRate[3], float * pidSum)
 {
     float quat_des[4], quat_ang[4], quat_error[4];
     float attitudeDesireZYX[3] = {0,attitudeDesire[1],attitudeDesire[0]};
     float attitudeCurrentZYX[3] = {0,attitudeCurrent[1],attitudeCurrent[0]};
-    float angleError[3], innertiaTerm[3], errorTerm1[3], errorTerm2[3], errorTerm[3], torqueOutput[3], u1, u2, u3, u4;
+    float angleError[3], innertiaTerm[3], errorTerm1[3], errorTerm2[3], errorTerm[3], torqueOutput[3], u1, u2, u3, u4, rotVec[3];
 
+    /* Use PID on Yaw
     // Do yaw rate calculation first
     float yawerrorRate = attitudeDesire[2] - angularRate[2]; // r - y
     const float tpaFactor = getThrottlePIDAttenuation();
@@ -895,6 +938,10 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     pidData[FD_YAW].D = 0;//preTpaData * tpaFactor;
     // Summing YAW PID
     float YAW_PID = pidData[FD_YAW].P + pidData[FD_YAW].I + pidData[FD_YAW].D;
+    USE PID on YAW*/
+
+    // integrate yaw stick to desired yaw
+    calc_psi_des(attitudeDesire[2], attitudeCurrent, pidRuntime.arming_state, pidRuntime.previous_arming_state, &(attitudeDesire[2]));
 
     // Starting SO3 controller
     eul2quatZYX(attitudeDesireZYX, quat_des);
@@ -902,10 +949,12 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     quaternionConjugate(quat_ang, quat_ang);
     quaternionMultiply(quat_des, quat_ang, quat_error);
 
-    getRotVecFromQuaternion(quat_error, angleError);
+    getRotVecFromQuaternion(quat_error, rotVec);
+    rotateframe(quat_ang, rotVec, angleError);
     float Kp_att[3]        = {pidRuntime.pidCoefficient[FD_ROLL].Kp / PTERM_SCALE / 100.0, pidRuntime.pidCoefficient[FD_PITCH].Kp / PTERM_SCALE / 100.0, pidRuntime.pidCoefficient[FD_YAW].Kp / PTERM_SCALE / 100.0};
     float Kp_rate[3]       = {pidRuntime.pidCoefficient[FD_ROLL].Kd / DTERM_SCALE / 1000.0, pidRuntime.pidCoefficient[FD_PITCH].Kd / DTERM_SCALE / 1000.0, pidRuntime.pidCoefficient[FD_YAW].Kd / DTERM_SCALE / 1000.0};
     float innertiaArray[3] = {pidRuntime.pidCoefficient[FD_ROLL].Ki / ITERM_SCALE / 1000.0, pidRuntime.pidCoefficient[FD_PITCH].Ki / ITERM_SCALE / 1000.0, pidRuntime.pidCoefficient[FD_YAW].Ki / ITERM_SCALE / 1000.0 / 2.5};
+    
     arrayMultiply(angleError, Kp_att, errorTerm1);
     arrayMultiply(angularRate, Kp_rate, errorTerm2);
     arrayMultiply(innertiaArray, angularRate, innertiaTerm);
@@ -914,12 +963,13 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     // torque = Kp * Vec(errorQuat) - kd * angulerRate + angularRate x (J * angularRate);
     arraySub(errorTerm1 , errorTerm2, errorTerm);
     // Replace errorTerm yaw with PID
-    errorTerm[2] = YAW_PID;
+    // errorTerm[2] = YAW_PID;
     arrayAdd(errorTerm, innertiaTerm, torqueOutput);
 
     float servoLength = (pidRuntime.pidCoefficient[FD_PITCH].Kf == 0) ? 0.05 : pidRuntime.pidCoefficient[FD_PITCH].Kf / FEEDFORWARD_SCALE;
     float armLength   = (pidRuntime.pidCoefficient[FD_ROLL].Kf == 0) ? 0.12 : pidRuntime.pidCoefficient[FD_ROLL].Kf / FEEDFORWARD_SCALE;
     float K_motor     = (pidRuntime.pidCoefficient[FD_YAW].Kf == 0) ? 20 : pidRuntime.pidCoefficient[FD_YAW].Kf / FEEDFORWARD_SCALE * 100; // throttle to force scaling
+
     u1 = -torqueOutput[1] / servoLength;
     u2 = torqueOutput[0]  / armLength;
     u3 = torqueOutput[2]  / armLength;
@@ -1089,6 +1139,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         float attitudeCurrent[3] = {attitude.values.roll/1800.0*M_PI, -attitude.values.pitch/1800.0*M_PI, attitude.values.yaw/1800.0*M_PI};
         // Pass through yaw command mapping PWM to +-150 deg/s
         pidRuntime.desiredYAW = -getSetpointRate(FD_YAW) / 180.0f * M_PI;
+	pidRuntime.previous_arming_state = pidRuntime.arming_state;
         pidRuntime.arming_state = ARMING_FLAG(ARMED);
         /*if(fabs(rcData[YAW] - rxConfig()->midrc) > rcControlsConfig()->yaw_deadband){
             // Add rc input to desired yaw
@@ -1099,7 +1150,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         pidRuntime.desiredYAW = conv2std(pidRuntime.desiredYAW);*/
         float attitudeDesire[3] = {(rcData[ROLL] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI ,
                                    -(rcData[PITCH] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI,
-                                   pidRuntime.desiredYAW};
+	                           (rcData[YAW] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI};
         // gyro are stored in the system with scaled value. Need to convert to rad/s
         // On TARGET OMNIBUSF4SD the pitch and yaw rate are in the opposite direction
         float angularRate[3] = {gyro.gyroADCf[FD_ROLL] * 4.1 / 180.0 * M_PI,
