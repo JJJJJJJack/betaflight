@@ -880,7 +880,7 @@ void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  arm
     *psi_des = psi;
   }
   
-  if ((psi_sp_diff < 0.01) &&(psi_sp_diff > -0.01)){
+  if ((psi_sp_diff <= -0.01) || (psi_sp_diff >= 0.01)){
     /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
     //float psi_integral = psi + psi_sp_diff;
     *psi_des = psi + psi_sp_diff;
@@ -899,8 +899,8 @@ void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  arm
 void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3], float angularRate[3], float * pidSum)
 {
     float quat_des[4], quat_ang[4], quat_error[4];
-    float attitudeDesireZYX[3] = {0,attitudeDesire[1],attitudeDesire[0]};
-    float attitudeCurrentZYX[3] = {0,attitudeCurrent[1],attitudeCurrent[0]};
+    float attitudeDesireZYX[3] = {conv2std(attitudeDesire[2]),attitudeDesire[1],attitudeDesire[0]};
+    float attitudeCurrentZYX[3] = {conv2std(attitudeCurrent[2]),attitudeCurrent[1],attitudeCurrent[0]};
     float angleError[3], innertiaTerm[3], errorTerm1[3], errorTerm2[3], errorTerm[3], torqueOutput[3], u1, u2, u3, u4, rotVec[3];
 
     /* Use PID on Yaw
@@ -941,7 +941,7 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     USE PID on YAW*/
 
     // integrate yaw stick to desired yaw
-    calc_psi_des(attitudeDesire[2], attitudeCurrent, pidRuntime.arming_state, pidRuntime.previous_arming_state, &(attitudeDesire[2]));
+    //calc_psi_des(attitudeDesire[2], attitudeCurrent, pidRuntime.arming_state, pidRuntime.previous_arming_state, &(attitudeDesire[2]));
 
     // Starting SO3 controller
     eul2quatZYX(attitudeDesireZYX, quat_des);
@@ -1138,9 +1138,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // Use SO3 controller for bicopter only
         float attitudeCurrent[3] = {attitude.values.roll/1800.0*M_PI, -attitude.values.pitch/1800.0*M_PI, attitude.values.yaw/1800.0*M_PI};
         // Pass through yaw command mapping PWM to +-150 deg/s
-        pidRuntime.desiredYAW = -getSetpointRate(FD_YAW) / 180.0f * M_PI;
-	pidRuntime.previous_arming_state = pidRuntime.arming_state;
+        //pidRuntime.desiredYAW = -getSetpointRate(FD_YAW) / 180.0f * M_PI;
+	
         pidRuntime.arming_state = ARMING_FLAG(ARMED);
+	calc_psi_des((rcData[YAW] - rxConfig()->midrc) / 500.0, attitudeCurrent, pidRuntime.arming_state, pidRuntime.previous_arming_state, &(pidRuntime.desiredYAW));
+	pidRuntime.previous_arming_state = pidRuntime.arming_state;
         /*if(fabs(rcData[YAW] - rxConfig()->midrc) > rcControlsConfig()->yaw_deadband){
             // Add rc input to desired yaw
             pidRuntime.desiredYAW += (rcData[YAW] - rxConfig()->midrc) / 500.0 * currentControlRateProfile->rate_limit[YAW] / 180.0 * M_PI / 500.0;
@@ -1150,7 +1152,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         pidRuntime.desiredYAW = conv2std(pidRuntime.desiredYAW);*/
         float attitudeDesire[3] = {(rcData[ROLL] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI ,
                                    -(rcData[PITCH] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI,
-	                           (rcData[YAW] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI};
+	                           pidRuntime.desiredYAW};
         // gyro are stored in the system with scaled value. Need to convert to rad/s
         // On TARGET OMNIBUSF4SD the pitch and yaw rate are in the opposite direction
         float angularRate[3] = {gyro.gyroADCf[FD_ROLL] * 4.1 / 180.0 * M_PI,
