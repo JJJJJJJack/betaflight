@@ -295,6 +295,7 @@ typedef struct pidRuntime_s {
 #endif
 
 #ifdef USE_SO3
+#define SERVO_RANGE  0.8726f//50 deg
     float desiredYAW;
     bool arming_state;
     bool previous_arming_state;

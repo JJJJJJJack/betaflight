@@ -321,7 +321,7 @@ STATIC_UNIT_TESTED float calcHorizonLevelStrength(void)
     //                         1 = leveling can be totally off when inverted
     if (pidRuntime.horizonTiltExpertMode) {
         if (pidRuntime.horizonTransition > 0 && pidRuntime.horizonCutoffDegrees > 0) {
-                    // if d_level > 0 and horizonTiltEffect < 175
+	  // if d_level > 0 and horizonTiltEffect < 175
             // horizonCutoffDegrees: 0 to 125 => 270 to 90 (represents where leveling goes to zero)
             // inclinationLevelRatio (0.0 to 1.0) is smaller (less leveling)
             //  for larger inclinations; 0.0 at horizonCutoffDegrees value:
@@ -901,47 +901,7 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     float quat_des[4], quat_ang[4], quat_error[4];
     float attitudeDesireZYX[3] = {conv2std(attitudeDesire[2]),attitudeDesire[1],attitudeDesire[0]};
     float attitudeCurrentZYX[3] = {conv2std(attitudeCurrent[2]),attitudeCurrent[1],attitudeCurrent[0]};
-    float angleError[3], innertiaTerm[3], errorTerm1[3], errorTerm2[3], errorTerm[3], torqueOutput[3], u1, u2, u3, u4, rotVec[3];
-
-    /* Use PID on Yaw
-    // Do yaw rate calculation first
-    float yawerrorRate = attitudeDesire[2] - angularRate[2]; // r - y
-    const float tpaFactor = getThrottlePIDAttenuation();
-    // YAW P
-    pidData[FD_YAW].P = pidRuntime.pidCoefficient[FD_YAW].Kp / 10.0f * yawerrorRate * tpaFactor;
-    pidData[FD_YAW].P = pidRuntime.ptermYawLowpassApplyFn((filter_t *) &pidRuntime.ptermYawLowpass, pidData[FD_YAW].P);
-    // YAW I
-    float dynCi = pidRuntime.dT;
-    if (pidRuntime.itermWindupPointInv > 1.0f) {
-        dynCi *= constrainf((1.0f - getMotorMixRange()) * pidRuntime.itermWindupPointInv, 0.0f, 1.0f);
-    }
-    const float previousIterm = pidData[FD_YAW].I;
-    float itermErrorRate = yawerrorRate;
-    float agGain = pidRuntime.dT * pidRuntime.itermAccelerator * AG_KI;
-    pidData[FD_YAW].I = constrainf(previousIterm + (0.3f * dynCi + agGain) * itermErrorRate, -pidRuntime.itermLimit, pidRuntime.itermLimit);
-    // YAW D
-    const float delta = - (pidRuntime.gyroRateDterm[FD_YAW] - pidRuntime.previousGyroRateDterm[FD_YAW]) * pidRuntime.pidFrequency;
-    pidRuntime.previousGyroRateDterm[FD_YAW] = pidRuntime.gyroRateDterm[FD_YAW];
-    float preTpaData = pidRuntime.pidCoefficient[FD_YAW].Kd / 10.0f * delta;
-
-    float dMinFactor = 1.0f;
-    if (pidRuntime.dMinPercent[FD_YAW] > 0) {
-        float dMinGyroFactor = biquadFilterApply(&pidRuntime.dMinRange[FD_YAW], delta);
-        dMinGyroFactor = fabsf(dMinGyroFactor) * pidRuntime.dMinGyroGain;
-        const float dMinSetpointFactor = (fabsf(pidRuntime.pidSetpointDelta[FD_YAW])) * pidRuntime.dMinSetpointGain;
-        dMinFactor = MAX(dMinGyroFactor, dMinSetpointFactor);
-        dMinFactor = pidRuntime.dMinPercent[FD_YAW] + (1.0f - pidRuntime.dMinPercent[FD_YAW]) * dMinFactor;
-        dMinFactor = pt1FilterApply(&pidRuntime.dMinLowpass[FD_YAW], dMinFactor);
-        dMinFactor = MIN(dMinFactor, 1.0f);
-    }
-    preTpaData *= dMinFactor;
-    pidData[FD_YAW].D = 0;//preTpaData * tpaFactor;
-    // Summing YAW PID
-    float YAW_PID = pidData[FD_YAW].P + pidData[FD_YAW].I + pidData[FD_YAW].D;
-    USE PID on YAW*/
-
-    // integrate yaw stick to desired yaw
-    //calc_psi_des(attitudeDesire[2], attitudeCurrent, pidRuntime.arming_state, pidRuntime.previous_arming_state, &(attitudeDesire[2]));
+    float angleError[3], innertiaTerm[3], errorTerm1[3], errorTerm2[3], errorTerm[3], torqueOutput[3], u1, u2, u3, thrust, rotVec[3];
 
     // Starting SO3 controller
     eul2quatZYX(attitudeDesireZYX, quat_des);
@@ -965,7 +925,9 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     // Replace errorTerm yaw with PID
     // errorTerm[2] = YAW_PID;
     arrayAdd(errorTerm, innertiaTerm, torqueOutput);
+    // End SO3 calculation
 
+    // Get vehicle parameters
     float servoLength = (pidRuntime.pidCoefficient[FD_PITCH].Kf == 0) ? 0.05 : pidRuntime.pidCoefficient[FD_PITCH].Kf / FEEDFORWARD_SCALE;
     float armLength   = (pidRuntime.pidCoefficient[FD_ROLL].Kf == 0) ? 0.12 : pidRuntime.pidCoefficient[FD_ROLL].Kf / FEEDFORWARD_SCALE;
     float K_motor     = (pidRuntime.pidCoefficient[FD_YAW].Kf == 0) ? 20 : pidRuntime.pidCoefficient[FD_YAW].Kf / FEEDFORWARD_SCALE * 100; // throttle to force scaling
@@ -973,28 +935,33 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     u1 = -torqueOutput[1] / servoLength;
     u2 = torqueOutput[0]  / armLength;
     u3 = torqueOutput[2]  / armLength;
-    u4 = K_motor * pow(fabs(rcData[THROTTLE] - 1000) / 1000.0 / 2.0 + 0.5, 2);
+    thrust = K_motor * pow(fabs(rcData[THROTTLE] - 1000) / 1000.0, 2);
 
-    float TRightsindelta1 = (u1-u3)/2.0;
-    float TLeftsindelta2 = (u1+u3)/2.0;
-    float TRightcosdelta1 = (u4-u2)/2.0;
-    float TLeftcosdelta2 = (u2+u4)/2.0;
-    float TRight = sqrt(pow(TRightsindelta1,2)+pow(TRightcosdelta1,2));
-    float TLeft = sqrt(pow(TLeftsindelta2,2)+pow(TLeftcosdelta2,2));
-    float deltaRight = atan2(TRightsindelta1/TRight, TRightcosdelta1/TRight);
-    float deltaLeft = atan2(TLeftsindelta2/TLeft, TLeftcosdelta2/TLeft);
-    //printf("u1: %f u2:%f u3:%f u4:%f\n", u1, u2, u3, u4);
-    //printf("TLeft: %f,  TRight: %f,  deltaLeft: %f,  deltaRight: %f\n", TLeft, TRight, deltaLeft, deltaRight);
+    // Old conversion
+    //float TRightsindelta1 = (u1-u3)/2.0;
+    //float TLeftsindelta2 = (u1+u3)/2.0;
+    //float TRightcosdelta1 = (u4-u2)/2.0;
+    //float TLeftcosdelta2 = (u2+u4)/2.0;
+    //float TRight = sqrt(pow(TRightsindelta1,2)+pow(TRightcosdelta1,2));
+    //float TLeft = sqrt(pow(TLeftsindelta2,2)+pow(TLeftcosdelta2,2));
+    //float deltaRight = atan2(TRightsindelta1, TRightcosdelta1);
+    //float deltaLeft = atan2(TLeftsindelta2, TLeftcosdelta2);
 
+    float tempT = sqrt(fabs((- pow(thrust,2) + pow(u1,2) + pow(u2,2))*(- pow(thrust,2) + pow(u2,2) + pow(u3,2))));
+    float TLeft =  -(u2*tempT + thrust*pow(u2,2) - pow(thrust,3) - thrust*u1*u3)/(2*(pow(thrust,2) - pow(u2,2)));
+    float TRight =  (u2*tempT - thrust*pow(u2,2) + pow(thrust,3) - thrust*u1*u3)/(2*(pow(thrust,2) - pow(u2,2)));
+    float deltaLeft =  2*atan2((tempT + u1*u3 + pow(thrust,2) - pow(u2,2)), ((thrust + u2)*(u1 + u3)));
+    float deltaRight = 2*atan2((tempT - u1*u3 + pow(thrust,2) - pow(u2,2)), ((thrust - u2)*(u1 - u3)));
+    
     // In Betaflight Bi-copter, the mixer does the following
     // servoLeft  = (pidYaw - pidPitch) * PID_SERVO_MIXER_SCALING + 1500
     // servoRight = (pidYaw + pidPitch) * PID_SERVO_MIXER_SCALING + 1500
     // motorLeft  = THROTTLE + pidRoll
     // motorRight = THROTTLE - pidRoll
-    float motorLeftPWM  = sqrt(TLeft/K_motor)*1000+1000;       // T = Kmotor * ((PWM-1000)/1000)^2
-    float motorRightPWM = sqrt(TRight/K_motor)*1000+1000;
-    float servoLeftPWM  = deltaLeft / (M_PI/2) * 500 + 1500;   // servoAngle = (PWM - 1500) / 500 * (pi/2)
-    float servoRightPWM = deltaRight / (M_PI/2) * 500 + 1500;
+    float motorLeftPWM  = constrainf(sqrt(TLeft/K_motor)*1000+1000, 1000, 2000);       // T = Kmotor * ((PWM-1000)/1000)^2
+    float motorRightPWM = constrainf(sqrt(TRight/K_motor)*1000+1000, 1000, 2000);
+    float servoLeftPWM  = constrainf(deltaLeft / SERVO_RANGE * 500 + 1500, 1000, 2000);   // servoAngle = (PWM - 1500) / 500 * (pi/2)
+    float servoRightPWM = constrainf(deltaRight / SERVO_RANGE * 500 + 1500, 1000, 2000);
     //printf("motorLeftPWM: %f  motorRightPWM: %f   servoLeftPWM: %f  servoRightPWM: %f\n", motorLeftPWM, motorRightPWM, servoLeftPWM, servoRightPWM);
 
     // Checking parameters
