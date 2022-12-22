@@ -83,7 +83,7 @@ int lockMainPID(void) {
 
 #define RAD2DEG (180.0 / M_PI)
 #define ACC_SCALE (512 / 9.80665)
-#define GYRO_SCALE (16.4 / 4)
+#define GYRO_SCALE (16 / 4)
 void sendMotorUpdate() {
     udpSend(&pwmLink, &pwmPkt, sizeof(servo_packet));
 }
@@ -96,7 +96,7 @@ void updateState(const fdm_packet* pkt) {
     clock_gettime(CLOCK_MONOTONIC, &now_ts);
 
     const uint64_t realtime_now = micros64_real();
-    if (realtime_now > last_realtime + 500*1e3) { // 500ms timeout
+    if (realtime_now > last_realtime + 5*1e3) { // 5ms timeout
         last_timestamp = pkt->timestamp;
         last_realtime = realtime_now;
         sendMotorUpdate();
@@ -154,6 +154,7 @@ void updateState(const fdm_packet* pkt) {
     double t4 = +1.0 - 2.0 * (ysqr + qz * qz);
     zf = atan2(t3, t4) * RAD2DEG;
     imuSetAttitudeRPY(xf, yf, zf); // yes! pitch was inverted!!
+    printf("Roll: %4.2f, Pitch: %4.2f, Yaw: %4.2f\n", xf, yf, zf);
 #else
     imuSetAttitudeQuat(pkt->imu_orientation_quat[0], pkt->imu_orientation_quat[1], pkt->imu_orientation_quat[2], pkt->imu_orientation_quat[3]);
 #endif
@@ -192,7 +193,7 @@ static void* udpThread(void* data) {
 
     while (workerRunning) {
         n = udpRecv(&stateLink, &fdmPkt, sizeof(fdm_packet), 100);
-        if (n == sizeof(fdm_packet)) {
+	if (n == sizeof(fdm_packet)) {
 //            printf("[data]new fdm %d\n", n);
             updateState(&fdmPkt);
         }
@@ -494,7 +495,7 @@ static void pwmCompleteMotorUpdate(void)
   if (pthread_mutex_trylock(&updateLock) != 0) return;
   udpSend(&pwmLink, &pwmPkt, sizeof(servo_packet));
   if(DEBUG_LEVEL >= DEBUG_ALL){
-    printf("[pwm]%u:%u,%u,%u,%u\n", idlePulse, motorsPwm[0], motorsPwm[1], motorsPwm[2], motorsPwm[3]);
+    printf("[pwm]%u:%f,%f,%f,%f\n", idlePulse, pwmPkt.motor_speed[0], pwmPkt.motor_speed[1], pwmPkt.motor_speed[2], pwmPkt.motor_speed[3]);
   }
 }
 

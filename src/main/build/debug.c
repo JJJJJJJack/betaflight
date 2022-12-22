@@ -99,3 +99,9 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     "D_LPF",
     "VTX_TRAMP",
 };
+
+float mspDebugPacking(float input)
+{
+    return input * 100.0f;
+}
+

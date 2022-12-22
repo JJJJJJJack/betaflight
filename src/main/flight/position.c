@@ -194,3 +194,6 @@ int16_t getEstimatedVario(void)
     return estimatedVario;
 }
 #endif
+
+position_msp_debug position_msp;
+position_msp_debug setWP_msp;

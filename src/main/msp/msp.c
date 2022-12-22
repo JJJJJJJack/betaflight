@@ -1125,6 +1125,16 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         break;
 #endif
 
+    case MSP_WP:
+        sbufWriteU32(dst, position_msp.msg1);
+        sbufWriteU32(dst, position_msp.msg2);
+        sbufWriteU32(dst, position_msp.msg3);
+        sbufWriteU32(dst, position_msp.msg4);
+        sbufWriteU32(dst, position_msp.msg5);
+        sbufWriteU32(dst, position_msp.msg6);
+        sbufWriteU32(dst, position_msp.msg7);
+        break;
+
     case MSP_MOTOR:
         for (unsigned i = 0; i < 8; i++) {
 #ifdef USE_MOTOR
@@ -2185,6 +2195,17 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         magHold = sbufReadU16(src);
         break;
 #endif
+
+    case MSP_SET_WP:
+        // read the Set wp package
+        setWP_msp.msg1 = sbufReadU32(src) / 100.0f;
+        setWP_msp.msg2 = sbufReadU32(src) / 100.0f;
+        setWP_msp.msg3 = sbufReadU32(src) / 100.0f;
+        setWP_msp.msg4 = sbufReadU32(src) / 100.0f;
+        setWP_msp.msg5 = sbufReadU32(src) / 100.0f;
+        setWP_msp.msg6 = sbufReadU32(src) / 100.0f;
+        setWP_msp.msg7 = sbufReadU32(src) / 100.0f;
+        break;
 
     case MSP_SET_RAW_RC:
 #ifdef USE_RX_MSP

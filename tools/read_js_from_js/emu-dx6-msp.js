@@ -3,6 +3,7 @@
 const THREE = require('three');
 const net = require('net');
 const ROSLIB = require('roslib');
+const ioctl = require('ioctl');
 
 const DEBUG_INFO = {
     DEBUG_SILENT:  0,
@@ -11,7 +12,7 @@ const DEBUG_INFO = {
 }
 
 let DEBUG_LEVEL = DEBUG_INFO.DEBUG_SILENT
-var FREQ = 50    // in Hz
+var FREQ = 200    // in Hz
 var ip = '127.0.0.1'
 var port = 5762 // MSP port on UART2
 // via MSP:
@@ -33,6 +34,7 @@ var Attitude_Quat = new THREE.Quaternion();
 var Attitude_Setpoint_Euler = new THREE.Euler();
 var Throttle_Setpoint = 0;
 var stateArm = false, JoystickAvailable = false;
+var TLeft = 0, TRight = 0, deltaLeft = 0, deltaRight = 0;
 
 /***************************************
            Useful function
@@ -68,6 +70,12 @@ var imuTopic = new ROSLIB.Topic({
     ros : ros,
     name : '/imu_data',
     messageType : 'sensor_msgs/Imu'
+});
+
+var pwmTopic = new ROSLIB.Topic({
+    ros : ros,
+    name : '/pwm_data',
+    messageType : 'std_msgs/Float32MultiArray'
 });
 
 var attitudeSetpointTopic = new ROSLIB.Topic({
@@ -192,6 +200,12 @@ msp.on('data', function(obj){
 	mspBOXNAME = obj.AUX_CONFIG
 	break;
     }
+    case msp.Codes.MSP_SERVO:{
+	//console.log(obj.servo)
+	deltaLeft = obj.servo[4];
+	deltaRight = obj.servo[5];
+	break;
+    }
     }
 })
 
@@ -261,6 +275,10 @@ Joystick.prototype.onOpen = function (err, fd) {
     }
     this.fd = fd;
     this.startRead();
+    //var number_of_axes = 0
+    //console.log(fd)
+    //ioctl(fd, 0x80016a11, number_of_axes);
+    //console.log(number_of_axes)
 };
 
 Joystick.prototype.startRead = function () {
@@ -286,9 +304,9 @@ Joystick.prototype.close = function (callback) {
 var joy2RC = {
     0: 'A',
     1: 'E',
-    2: '1',
+    2: 'R',
     3: 'T',
-    4: 'R',
+    4: '1',
     5: '2',
 }
 var joyBtn2RC = {
@@ -298,6 +316,22 @@ var joyBtn2RC = {
     3: '3',
     4: '3',
     5: '3',
+}
+var joy2RCDirection = {
+    0: -1,
+    1: -1,
+    2: -1,
+    3:  -2,
+    4:  1,
+    5:  1,
+}
+var joy2RCOffset = {
+    0: 0,
+    1: 0,
+    2: 0,
+    3: -500,
+    4:  0,
+    5: 0,
 }
 var channelValues = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500];
 var js = new Joystick(0);
@@ -311,9 +345,9 @@ js.on('button', function(data){
 js.on('axis', function(data){
     var ch = data.number
     var val = data.value
-    val = (1000 * val / 65535) + 1500
-
+    val = (1000 * val / 65535) * joy2RCDirection[ch] + 1500 + joy2RCOffset[ch]
     channelValues[channelMSPIndexes[joy2RC[ch]]] = val;
+    //console.log(ch)
     //Print out output
     //console.log(channelValues)
     //	msp.send_message(msp.Codes.MSP_SET_RAW_RC, channelValues);
@@ -349,6 +383,19 @@ function publishROS() {
     if(DEBUG_LEVEL >= DEBUG_INFO.DEBUG_ALL){
 	console.log('Publishing IMU data');
     }
+    // PWM info
+    var pwmMessage = new ROSLIB.Message({
+	layout : {
+	    dim : [{
+		label : "PWM data",
+		size : 4,
+		stride: 1,
+	    }],
+	    data_offset : 0,
+	},
+	data : [TLeft, TRight, deltaLeft, deltaRight],
+    });
+    pwmTopic.publish(pwmMessage);
 }
 
 
@@ -365,6 +412,7 @@ function communicateMSP() {
     msp.send_message(msp.Codes.MSP_STATUS_EX)
     //msp.send_message(msp.Codes.MSP_ATTITUDE);
     //msp.send_message(msp.Codes.MSP_RC);
+    msp.send_message(msp.Codes.MSP_SERVO);
     publishROS();
     var t = setTimeout(communicateMSP, 1000.0/FREQ);
 }

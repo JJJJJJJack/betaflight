@@ -249,8 +249,8 @@
 
 #define USE_I2C
 #define USE_I2C_DEVICE_2
-#define I2C2_SCL                NONE // PB10, shared with UART3TX
-#define I2C2_SDA                NONE // PB11, shared with UART3RX
+#define I2C2_SCL                PB10 // PB10, shared with UART3TX
+#define I2C2_SDA                PB11 // PB11, shared with UART3RX
 #if defined(OMNIBUSF4BASE) || defined(OMNIBUSF4SD)
 #define USE_I2C_DEVICE_3
 #define I2C3_SCL                NONE // PA8, PWM6

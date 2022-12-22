@@ -123,9 +123,9 @@ static const servoMixer_t servoMixerTri[] = {
 
 #if defined(USE_UNCOMMON_MIXERS)
 static const servoMixer_t servoMixerBI[] = {
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,   -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,   100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,  -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,  100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
 };
 
@@ -523,6 +523,26 @@ static void servoTable(void)
             }
         }
     }
+
+    // JJJJJJJack 2022-08-26
+    // Add servo tilt here
+    // if bicopter
+    // servo left += pitch_offset * pitch_to_servo_ratio;
+    // servo right -= pitch_offset * pitch_to_servo_ratio;
+    if(getMixerMode() == MIXER_BICOPTER){
+        float pitch_offset;
+        if(rcData[AUX1] <= 1500)
+            pitch_offset = 0;
+        else
+            pitch_offset = (rcData[AUX1] - 1500) / 500.0f * 90;
+        // puller
+        //servo[SERVO_BICOPTER_LEFT] += pitch_offset * PITCH_SERVO_RATIO;
+        //servo[SERVO_BICOPTER_RIGHT] -= pitch_offset * PITCH_SERVO_RATIO;
+        // pusher
+        servo[SERVO_BICOPTER_LEFT] -= pitch_offset * PITCH_SERVO_RATIO;
+        servo[SERVO_BICOPTER_RIGHT] += pitch_offset * PITCH_SERVO_RATIO;
+    }
+    
 
     // constrain servos
     for (int i = 0; i < MAX_SUPPORTED_SERVOS; i++) {

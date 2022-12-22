@@ -24,6 +24,8 @@
 #include "drivers/io_types.h"
 #include "drivers/pwm_output.h"
 
+#define PITCH_SERVO_RATIO 500.0f/90.0f
+
 // These must be consecutive, see 'reversedSources'
 enum {
     INPUT_STABILIZED_ROLL = 0,

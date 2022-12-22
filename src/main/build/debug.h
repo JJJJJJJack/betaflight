@@ -118,3 +118,6 @@ typedef enum {
 } debugType_e;
 
 extern const char * const debugModeNames[DEBUG_COUNT];
+
+
+float mspDebugPacking(float input);

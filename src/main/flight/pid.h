@@ -54,7 +54,10 @@
 #define AG_KI 21.586988f;
 
 // USE SO3 controller
-#define USE_SO3
+//#define USE_SO3
+
+// USE Quaternion control
+#define QUATERNION_CONTROL
 
 #define ITERM_ACCELERATOR_GAIN_OFF 1000
 #define ITERM_ACCELERATOR_GAIN_MAX 30000
@@ -399,6 +402,22 @@ bool pidOsdAntiGravityActive(void);
 bool pidOsdAntiGravityMode(void);
 void pidSetAntiGravityState(bool newState);
 bool pidAntiGravityEnabled(void);
+float sign(float x);
+float conv2std(float input_angle);
+void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  armed_prev, float * psi_des);
+void eul2quatZYX(float eulerAngle[3], float * quaternion);
+float quaternionNorm(float quat[4]);
+void quaternionNormalize(float quat[4], float * result);
+void quaternionMultiply(float q1[4], float q2[4], float * result);
+void quaternionConjugate(float quaternion[4], float * result);
+void quaternionInverse(float quaternion[4], float * result);
+void quaternionToAxisAngle(float quaternion[4], float * axisAngle);
+
+#ifdef QUATERNION_CONTROL
+    #include "sensors/acceleration.h"
+    void angularRateFromQuaternionError(const pidProfile_t *pidProfile);
+#endif
+
 #ifdef USE_THRUST_LINEARIZATION
 float pidApplyThrustLinearization(float motorValue);
 float pidCompensateThrustLinearization(float throttle);

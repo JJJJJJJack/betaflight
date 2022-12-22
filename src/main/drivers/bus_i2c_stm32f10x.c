@@ -32,6 +32,9 @@
 #include "drivers/nvic.h"
 #include "drivers/rcc.h"
 
+#include "flight/position.h"
+
+
 #include "drivers/bus_i2c.h"
 #include "drivers/bus_i2c_impl.h"
 
@@ -51,6 +54,8 @@
 static void i2c_er_handler(I2CDevice device);
 static void i2c_ev_handler(I2CDevice device);
 static void i2cUnstick(IO_t scl, IO_t sda);
+
+int aaaa = 1, bbbb = 10;
 
 #ifdef STM32F4
 #define IOCFG_I2C_PU IO_CONFIG(GPIO_Mode_AF, 0, GPIO_OType_OD, GPIO_PuPd_UP)
@@ -176,12 +181,14 @@ bool i2cWriteBuffer(I2CDevice device, uint8_t addr_, uint8_t reg_, uint8_t len_,
     if (!I2Cx) {
         return false;
     }
-
+    
     i2cState_t *state = &i2cDevice[device].state;
     if (state->busy) {
         return false;
     }
-
+    
+    
+    
     uint32_t timeout = I2C_DEFAULT_TIMEOUT;
 
     state->addr = addr_ << 1;
@@ -221,11 +228,9 @@ bool i2cWait(I2CDevice device)
 {
     i2cState_t *state = &i2cDevice[device].state;
     uint32_t timeout = I2C_DEFAULT_TIMEOUT;
-
     while (state->busy && --timeout > 0) {; }
     if (timeout == 0)
         return i2cHandleHardwareFailure(device) && i2cWait(device);
-
     return !(state->error);
 }
 
@@ -291,7 +296,6 @@ static void i2c_er_handler(I2CDevice device) {
 
     if (SR1Register & (I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_AF | I2C_SR1_OVR)) // an error
         state->error = true;
-
     // If AF, BERR or ARLO, abandon the current job and commence new if there are jobs
     if (SR1Register & (I2C_SR1_BERR | I2C_SR1_ARLO | I2C_SR1_AF)) {
         (void)I2Cx->SR2;                                                        // read second status register to clear ADDR if it is set (note that BTF will not be set after a NACK)
@@ -314,7 +318,7 @@ static void i2c_er_handler(I2CDevice device) {
 }
 
 void i2c_ev_handler(I2CDevice device) {
-
+    
     I2C_TypeDef *I2Cx = i2cDevice[device].hardware->reg;
 
     i2cState_t *state = &i2cDevice[device].state;

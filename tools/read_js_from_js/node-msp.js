@@ -41,6 +41,7 @@ module.exports = MSP;
 MSP.prototype.Codes = MSPCodes
 
 MSP.prototype.setSender = function(func){
+    //console.log("SET SENDER!!!!!")
     var self = this
     if(func){
 	self.sender = func

@@ -49,6 +49,7 @@
 #include "flight/mixer.h"
 #include "flight/rpm_filter.h"
 #include "flight/interpolated_setpoint.h"
+#include "flight/position.h"
 
 #include "io/gps.h"
 
@@ -79,6 +80,11 @@ const char pidNames[] =
 FAST_DATA_ZERO_INIT uint32_t targetPidLooptime;
 FAST_DATA_ZERO_INIT pidAxisData_t pidData[XYZ_AXIS_COUNT];
 FAST_DATA_ZERO_INIT pidRuntime_t pidRuntime;
+#ifdef QUATERNION_CONTROL
+    float angularRateDesired[XYZ_AXIS_COUNT];
+    float Yaw_desire;
+    bool arming_state=false, previous_arming_state=false;
+#endif
 
 #if defined(USE_ABSOLUTE_CONTROL)
 STATIC_UNIT_TESTED FAST_DATA_ZERO_INIT float axisError[XYZ_AXIS_COUNT];
@@ -88,6 +94,8 @@ STATIC_UNIT_TESTED FAST_DATA_ZERO_INIT float axisError[XYZ_AXIS_COUNT];
 FAST_DATA_ZERO_INIT float throttleBoost;
 pt1Filter_t throttleLpf;
 #endif
+
+busDevice_t i2cDev;
 
 PG_REGISTER_WITH_RESET_TEMPLATE(pidConfig_t, pidConfig, PG_PID_CONFIG, 2);
 
@@ -375,6 +383,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     angle += gpsRescueAngle[axis] / 100; // ANGLE IS IN CENTIDEGREES
 #endif
     angle = constrainf(angle, -pidProfile->levelAngleLimit, pidProfile->levelAngleLimit);
+    //printf("Desired angle on axis: %d,   %f\n", axis, angle);
     const float errorAngle = angle - ((attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f);
     if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(GPS_RESCUE_MODE)) {
         // ANGLE mode - control is angle based
@@ -385,8 +394,35 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
         const float horizonLevelStrength = calcHorizonLevelStrength();
         currentPidSetpoint = currentPidSetpoint + (errorAngle * pidRuntime.horizonGain * horizonLevelStrength);
     }
+    #ifdef QUATERNION_CONTROL
+        return angularRateDesired[axis] * pidRuntime.levelGain;
+    #endif
     return currentPidSetpoint;
 }
+
+// Quaternion control added by JJJJJJJack
+// Date created: 12/10/2022
+#ifdef QUATERNION_CONTROL
+void angularRateFromQuaternionError(const pidProfile_t *pidProfile){
+    float eulerAngleYPR[3], quat_des[4], quat_ang[4], quat_ang_inv[4], quat_diff[4], axisAngle[4];
+    quaternion q_ang = QUATERNION_INITIALIZE;
+    arming_state = ARMING_FLAG(ARMED);
+    calc_psi_des(getRcDeflection(FD_YAW), attitude.raw, arming_state, previous_arming_state, &Yaw_desire);
+    previous_arming_state = arming_state;
+    eulerAngleYPR[0] = conv2std(Yaw_desire);
+    eulerAngleYPR[1] = (pidProfile->levelAngleLimit * getRcDeflection(FD_PITCH))/57.3f;
+    eulerAngleYPR[2] = pidProfile->levelAngleLimit * getRcDeflection(FD_ROLL)/57.3f;
+    eul2quatZYX(eulerAngleYPR, quat_des);
+    getQuaternion(&q_ang);
+    quat_ang[0] = q_ang.w; quat_ang[1] = q_ang.x; quat_ang[2] = q_ang.y; quat_ang[3] = q_ang.z;
+    quaternionInverse(quat_ang, quat_ang_inv);
+    quaternionMultiply(quat_ang_inv, quat_des, quat_diff);
+    quaternionToAxisAngle(quat_diff, axisAngle);
+    angularRateDesired[FD_ROLL] = axisAngle[0] * axisAngle[3] * 57.3f;
+    angularRateDesired[FD_PITCH] = axisAngle[1] * axisAngle[3] * 57.3f;
+    angularRateDesired[FD_YAW] = axisAngle[2] * axisAngle[3] * 57.3f;
+}
+#endif
 
 static void handleCrashRecovery(
     const pidCrashRecovery_e crash_recovery, const rollAndPitchTrims_t *angleTrim,
@@ -761,7 +797,48 @@ static FAST_CODE_NOINLINE float applyLaunchControl(int axis, const rollAndPitchT
 }
 #endif
 
-#ifdef USE_SO3
+
+float sign(float x)
+{
+  return x > 0 ? 1 : -1;
+}
+
+// Wrap angle in radians to [-pi pi]
+float conv2std(float input_angle)
+{
+    input_angle += M_PI;
+    input_angle = fmod(input_angle, 2*M_PI);
+    input_angle -= M_PI;
+    return input_angle;
+}
+
+// Integration of psi stick input to the desired psi
+// Input:
+//     psi_sp_diff: Stick input
+//     eulerAngle[3]: roll, pitch, yaw
+//     armed: Current arm state
+//     armed_prev: Last arm state
+// Output:
+//     psi_des: Pointer to the desired psi
+void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  armed_prev, float * psi_des)
+{
+  float psi = eulerAngle[2];
+  
+  if(!armed)
+    *psi_des = psi + psi_sp_diff;
+
+  if((armed_prev != armed) && armed) {
+    /*  if ARMed */
+    *psi_des = psi;
+  }
+  
+  if (fabs(psi_sp_diff) >= 0.01){
+    /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
+    //float psi_integral = psi + psi_sp_diff;
+    *psi_des += psi_sp_diff*0.01f;
+  }
+}
+
 void eul2quatZYX(float eulerAngle[3], float * quaternion)
 {
     // from Wiki: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
@@ -780,6 +857,20 @@ void eul2quatZYX(float eulerAngle[3], float * quaternion)
     quaternion[3] = cr * cp * sy - sr * sp * cy;
 }
 
+float quaternionNorm(float quat[4])
+{
+    return quat[0]*quat[0] + quat[1]*quat[1] + quat[2]*quat[2] + quat[3]*quat[3];
+}
+
+void quaternionNormalize(float quat[4], float * result)
+{
+    float quaternion_norm = quaternionNorm(quat);
+    result[0] = quat[0] / sqrtf(quaternion_norm);
+    result[1] = quat[1] / sqrtf(quaternion_norm);
+    result[2] = quat[2] / sqrtf(quaternion_norm);
+    result[3] = quat[3] / sqrtf(quaternion_norm);
+}
+
 void quaternionMultiply(float q1[4], float q2[4], float * result)
 {
     result[1] =  q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2] + q1[0] * q2[1];
@@ -796,6 +887,47 @@ void quaternionConjugate(float quaternion[4], float * result)
     result[0] = quaternion[0];
 }
 
+void quaternionInverse(float quaternion[4], float * result)
+{
+    float quaternion_conjugate[4];
+    quaternionConjugate(quaternion, quaternion_conjugate);
+    float quaternion_norm = quaternionNorm(quaternion);
+    result[0] = quaternion_conjugate[0] / quaternion_norm;
+    result[1] = quaternion_conjugate[1] / quaternion_norm;
+    result[2] = quaternion_conjugate[2] / quaternion_norm;
+    result[3] = quaternion_conjugate[3] / quaternion_norm;
+    //qinv  = quatconj( q )./(quatnorm( q )*ones(1,4));
+}
+
+void quaternionToAxisAngle(float quaternion[4], float * axisAngle)
+{
+    //Normalize the quaternions
+    float quat_norm[4];
+    quaternionNormalize(quaternion, quat_norm);
+
+    //Normalize and generate the rotation vector and angle sequence
+    //For a single quaternion q = [w x y z], the formulas are as follows:
+    //(axis) v = [x y z] / norm([x y z]);
+    //(angle) theta = 2 * acos(w)
+    float axis[3], axis_norm, angle;
+    axis_norm = sqrtf(quat_norm[1]*quat_norm[1] + quat_norm[2]*quat_norm[2] + quat_norm[3]*quat_norm[3]);
+    if(axis_norm != 0){
+        axis[0] = quat_norm[1] / axis_norm;
+        axis[1] = quat_norm[2] / axis_norm;
+        axis[2] = quat_norm[3] / axis_norm;
+    }else{
+        axis[0] = 0; axis[1] = 0; axis[2] = 1;
+    }
+    angle = conv2std(2.0f*acos(quat_norm[0]));
+
+    axisAngle[0] = axis[0];
+    axisAngle[1] = axis[1];
+    axisAngle[2] = axis[2];
+    axisAngle[3] = angle;
+}
+
+
+#ifdef USE_SO3
 void arrayMultiply(float array1[3], float array2[3], float * result)
 {
     for(int i = 0; i < 3; i++){
@@ -838,7 +970,7 @@ void arrayCrossProduct(float array1[3], float array2[3], float * result)
     //= [ a1*b2 - a2*b1, a2*b0 - a0*b2, a0*b1 - a1*b0]
     result[0] = array1[1] * array2[2] - array1[2] * array2[1];
     result[1] = array1[2] * array2[0] - array1[0] * array2[2];
-    result[1] = array1[0] * array2[1] - array1[1] * array2[0];
+    result[2] = array1[0] * array2[1] - array1[1] * array2[0];
 }
 
 void arraySub(float array1[3], float array2[3], float * result)
@@ -855,39 +987,6 @@ void arrayAdd(float array1[3], float array2[3], float * result)
     }
 }
 
-float conv2std(float input_angle)
-{
-    input_angle += M_PI;
-    input_angle = fmod(input_angle, 2*M_PI);
-    input_angle -= M_PI;
-    return input_angle;
-}
-
-// Integration of psi stick input to the desired psi
-// Input:
-//     psi_sp_diff: Stick input
-//     eulerAngle[3]: roll, pitch, yaw
-//     armed: Current arm state
-//     armed_prev: Last arm state
-// Output:
-//     psi_des: Pointer to the desired psi
-void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  armed_prev, float * psi_des)
-{
-  float psi = eulerAngle[2];
-  
-  if((armed_prev != armed) && armed) {
-    /*  if ARMed */
-    *psi_des = psi;
-  }
-  
-  if ((psi_sp_diff <= -0.01) || (psi_sp_diff >= 0.01)){
-    /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
-    //float psi_integral = psi + psi_sp_diff;
-    *psi_des = psi + psi_sp_diff;
-  }
-}
-
-
 // Implementing the SO(3) controller from Paper
 // High Performance Full Attitude Control of a Quadrotor on SO(3)
 // Input: 
@@ -898,10 +997,29 @@ void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  arm
 //          pidSum         : Output for the roll pitch and yaw control effort.
 void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3], float angularRate[3], float * pidSum)
 {
+  //printf("Desired angle: roll: %4.2f, pitch: %4.2f, yaw: %4.2f\n", attitudeDesire[0], attitudeDesire[1], attitudeDesire[2]);
+  //printf("Rate: roll: %6.4f, pitch: %6.4f, yaw: %6.4f\n", angularRate[0], angularRate[1], angularRate[2]);
+  //printf("current attitude: roll: %6.4f, pitch: %6.4f, yaw: %6.4f\n", attitudeCurrent[0], attitudeCurrent[1], attitudeCurrent[2]);
+    // For debugging
+    //attitudeDesire[0] = 0.2;
+    //attitudeDesire[1] = 0;
+    //attitudeDesire[2] = 0;
+    //attitudeCurrent[0] = 0.0/57.3;
+    //attitudeCurrent[1] = 0;
+    //attitudeCurrent[2] = 0;
+    //angularRate[0] = attitudeDesire[0]*57.3*10.0;
+    //angularRate[1] = attitudeDesire[1]*57.3*10.0;
+    //angularRate[2] = attitudeDesire[2]*57.3*10.0;
+    //angularRate[0] = attitudeDesire[0]*57.3f;
+    //angularRate[1] = attitudeDesire[1]*57.3f;
+    //attitudeDesire[0] = 0;
+    //attitudeDesire[1] = 0;
+    //attitudeDesire[2] = 0;
+    
     float quat_des[4], quat_ang[4], quat_error[4];
     float attitudeDesireZYX[3] = {conv2std(attitudeDesire[2]),attitudeDesire[1],attitudeDesire[0]};
     float attitudeCurrentZYX[3] = {conv2std(attitudeCurrent[2]),attitudeCurrent[1],attitudeCurrent[0]};
-    float angleError[3], innertiaTerm[3], errorTerm1[3], errorTerm2[3], errorTerm[3], torqueOutput[3], u1, u2, u3, thrust, rotVec[3];
+    float angleError[3], innertiaTerm[3], errorTerm1[3], errorTerm2[3], errorTerm[3], torqueOutput[3], u1, u2, u3, u4, thrust, rotVec[3];
 
     // Starting SO3 controller
     eul2quatZYX(attitudeDesireZYX, quat_des);
@@ -917,13 +1035,15 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     
     arrayMultiply(angleError, Kp_att, errorTerm1);
     arrayMultiply(angularRate, Kp_rate, errorTerm2);
-    arrayMultiply(innertiaArray, angularRate, innertiaTerm);
-    arrayCrossProduct(angularRate, innertiaTerm, innertiaTerm);
+    float innertiaTemp[3];
+    arrayMultiply(innertiaArray, angularRate, innertiaTemp);
+    arrayCrossProduct(angularRate, innertiaTemp, innertiaTerm);
+    //printf("%6.3f, %6.3f, %6.3f\n", output[0], output[1], output[2]);
+    //printf("%6.3f, %6.3f, %6.3f\n", innertiaArray[0], innertiaArray[1], innertiaArray[2]);
+    //printf("%6.3f, %6.3f, %6.3f\n", innertiaTerm[0], innertiaTerm[1], innertiaTerm[2]);
     
     // torque = Kp * Vec(errorQuat) - kd * angulerRate + angularRate x (J * angularRate);
     arraySub(errorTerm1 , errorTerm2, errorTerm);
-    // Replace errorTerm yaw with PID
-    // errorTerm[2] = YAW_PID;
     arrayAdd(errorTerm, innertiaTerm, torqueOutput);
     // End SO3 calculation
 
@@ -932,36 +1052,70 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     float armLength   = (pidRuntime.pidCoefficient[FD_ROLL].Kf == 0) ? 0.12 : pidRuntime.pidCoefficient[FD_ROLL].Kf / FEEDFORWARD_SCALE;
     float K_motor     = (pidRuntime.pidCoefficient[FD_YAW].Kf == 0) ? 20 : pidRuntime.pidCoefficient[FD_YAW].Kf / FEEDFORWARD_SCALE * 100; // throttle to force scaling
 
-    u1 = -torqueOutput[1] / servoLength;
+    u1 = torqueOutput[1] / servoLength;
     u2 = torqueOutput[0]  / armLength;
     u3 = torqueOutput[2]  / armLength;
-    thrust = K_motor * pow(fabs(rcData[THROTTLE] - 1000) / 1000.0, 2);
+    thrust = K_motor * constrainf(pow(fabs(rcData[THROTTLE] - 1000) / 1000.0, 2), 0.4, 1.0);
+    u4 = thrust;
+    
+    //printf("Roll: %d, Pitch: %d, Throttle: %d, Yaw: %d\n", rcData[ROLL], rcData[PITCH], rcData[THROTTLE], rcData[YAW]);
+    //printf("Torque: roll: %4.2f, pitch: %4.2f, yaw: %4.2f\n", torqueOutput[0], torqueOutput[1], torqueOutput[2]);
+
+    //printf("U1: %4.2f, U2: %4.2f, U3: %4.2f\n", u1, u2, u3);
+    
+    u1 = constrainf(u1, -thrust*0.7f, thrust*0.7f);
+    u2 = constrainf(u2, -thrust*0.7f, thrust*0.7f);
+    u3 = constrainf(u3, -thrust*0.7f, thrust*0.7f);
+
+    
+    // For finding servo mid only
+    //u1 = 0; u2 = 0; u3 = 0; thrust = 2;
 
     // Old conversion
-    //float TRightsindelta1 = (u1-u3)/2.0;
-    //float TLeftsindelta2 = (u1+u3)/2.0;
-    //float TRightcosdelta1 = (u4-u2)/2.0;
-    //float TLeftcosdelta2 = (u2+u4)/2.0;
-    //float TRight = sqrt(pow(TRightsindelta1,2)+pow(TRightcosdelta1,2));
-    //float TLeft = sqrt(pow(TLeftsindelta2,2)+pow(TLeftcosdelta2,2));
-    //float deltaRight = atan2(TRightsindelta1, TRightcosdelta1);
-    //float deltaLeft = atan2(TLeftsindelta2, TLeftcosdelta2);
+    /*
+    float TRightsindelta1 = (u1-u3)/2.0;
+    float TLeftsindelta2 = (u1+u3)/2.0;
+    float TRightcosdelta1 = (u4-u2)/2.0;
+    float TLeftcosdelta2 = (u2+u4)/2.0;
+    float TRight = sqrt(pow(TRightsindelta1,2)+pow(TRightcosdelta1,2));
+    float TLeft = sqrt(pow(TLeftsindelta2,2)+pow(TLeftcosdelta2,2));
+    float deltaRight = atan2(TRightsindelta1, TRightcosdelta1);
+    float deltaLeft = atan2(TLeftsindelta2, TLeftcosdelta2);
+    */
 
-    float tempT = sqrt(fabs((- pow(thrust,2) + pow(u1,2) + pow(u2,2))*(- pow(thrust,2) + pow(u2,2) + pow(u3,2))));
-    float TLeft =  -(u2*tempT + thrust*pow(u2,2) - pow(thrust,3) - thrust*u1*u3)/(2*(pow(thrust,2) - pow(u2,2)));
-    float TRight =  (u2*tempT - thrust*pow(u2,2) + pow(thrust,3) - thrust*u1*u3)/(2*(pow(thrust,2) - pow(u2,2)));
-    float deltaLeft =  2*atan2((tempT + u1*u3 + pow(thrust,2) - pow(u2,2)), ((thrust + u2)*(u1 + u3)));
-    float deltaRight = 2*atan2((tempT - u1*u3 + pow(thrust,2) - pow(u2,2)), ((thrust - u2)*(u1 - u3)));
+    // Fixed conversion
+    // u1 = Tr sin dr + Tl sin dl
+    // u2 = Tl - Tr
+    // u3 = Tl sin dl - Tr sin dr
+    // u4 = Tl + Tr
+    float TRightsindeltaRight = (u1-u3)/2.0;
+    float TLeftsindeltaLeft   = (u1+u3)/2.0;
+    float TRight = constrainf((u4-u2)/2.0, 0.01, 10000);
+    float TLeft  = constrainf((u4+u2)/2.0, 0.01, 10000);
+    float TCONST = 1.0f;
+    float deltaRight = asin(TRightsindeltaRight/TCONST);
+    float deltaLeft  = asin(TLeftsindeltaLeft/TCONST);
     
+
+    // New conversion
+    /*
+    float tempT = sqrt(constrainf((- pow(thrust,2) + pow(u1,2) + pow(u2,2))*(- pow(thrust,2) + pow(u2,2) + pow(u3,2)), 0, 100000.0f));
+    float TLeft =  (u2*tempT - thrust*pow(u2,2) + pow(thrust,3) + thrust*u1*u3)/(2*(pow(thrust,2) - pow(u2,2)));
+    float TRight =  -(u2*tempT + thrust*pow(u2,2) - pow(thrust,3) + thrust*u1*u3)/(2*(pow(thrust,2) - pow(u2,2)));
+    float deltaLeft =  -2*atan2((tempT + u1*u3 + pow(thrust,2) - pow(u2,2)), ((thrust + u2)*(u1 + u3))) + M_PI;
+    float deltaRight = -2*atan2((tempT - u1*u3 + pow(thrust,2) - pow(u2,2)), ((thrust - u2)*(u1 - u3))) + M_PI;
+    */
+    //printf("TL:%4.3f, TR:%4.3f, deltaL:%4.3f, deltaR:%4.3f\n", TLeft, TRight, deltaLeft, deltaRight);
+
     // In Betaflight Bi-copter, the mixer does the following
-    // servoLeft  = (pidYaw - pidPitch) * PID_SERVO_MIXER_SCALING + 1500
-    // servoRight = (pidYaw + pidPitch) * PID_SERVO_MIXER_SCALING + 1500
+    // servoLeft  = (-pidYaw - pidPitch) * PID_SERVO_MIXER_SCALING + 1500
+    // servoRight = (-pidYaw + pidPitch) * PID_SERVO_MIXER_SCALING + 1500
     // motorLeft  = THROTTLE + pidRoll
     // motorRight = THROTTLE - pidRoll
     float motorLeftPWM  = constrainf(sqrt(TLeft/K_motor)*1000+1000, 1000, 2000);       // T = Kmotor * ((PWM-1000)/1000)^2
     float motorRightPWM = constrainf(sqrt(TRight/K_motor)*1000+1000, 1000, 2000);
-    float servoLeftPWM  = constrainf(deltaLeft / SERVO_RANGE * 500 + 1500, 1000, 2000);   // servoAngle = (PWM - 1500) / 500 * (pi/2)
-    float servoRightPWM = constrainf(deltaRight / SERVO_RANGE * 500 + 1500, 1000, 2000);
+    float servoLeftPWM  = constrainf(deltaLeft / SERVO_RANGE * 500 + 1500, 1000, 2000);   // servoAngle = (PWM - 1500) / 500 * (pi/2) * direction
+    float servoRightPWM = constrainf(-deltaRight / SERVO_RANGE * 500 + 1500, 1000, 2000); // servoAngle = (PWM - 1500) / 500 * (pi/2) * direction
     //printf("motorLeftPWM: %f  motorRightPWM: %f   servoLeftPWM: %f  servoRightPWM: %f\n", motorLeftPWM, motorRightPWM, servoLeftPWM, servoRightPWM);
 
     // Checking parameters
@@ -971,9 +1125,9 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
     //printf("servoLength: %f, armLength: %f, K_motor: %f\n", servoLength, armLength, K_motor);
 
     // pidSum in the order of roll pitch yaw
-    pidSum[0] = (motorLeftPWM - motorRightPWM) / 2.0;
-    pidSum[1] = (servoRightPWM + servoLeftPWM - 3000) / PID_SERVO_MIXER_SCALING / 2.0;
-    pidSum[2] = (servoRightPWM - servoLeftPWM) / PID_SERVO_MIXER_SCALING / 2.0;
+    pidSum[0] = (motorRightPWM - motorLeftPWM) / 2.0;
+    pidSum[1] = (servoRightPWM - servoLeftPWM) / PID_SERVO_MIXER_SCALING / 2.0;
+    pidSum[2] = (-servoRightPWM - servoLeftPWM + 3000) / PID_SERVO_MIXER_SCALING / 2.0;
     //printf("pidRoll:%f,  pidPitch:%f,  pidYaw:%f\n", pidSum[0], pidSum[1], pidSum[2]);
 }
 #endif
@@ -982,6 +1136,23 @@ void FAST_CODE SO3_controller(float attitudeDesire[3], float attitudeCurrent[3],
 // Based on 2DOF reference design (matlab)
 void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTimeUs)
 {
+    // 20221011 FIXME test I2C
+    uint8_t i2cBuffer;
+    /*uint8_t i2cBuffer[8];
+    uint16_t i2cData = 1500;
+    memcpy(i2cBuffer, &i2cData, 2);
+    memcpy(i2cBuffer+2, &i2cData, 2);
+    memcpy(i2cBuffer+4, &i2cData, 2);
+    memcpy(i2cBuffer+6, &i2cData, 2);
+    bool i2cResult = i2cWriteBuffer(I2C_DEVICE, 0x12, 0x12, 8, i2cBuffer);*/
+    //busDeviceRegister(&i2cDev);
+    i2cDev.bustype = BUSTYPE_I2C;
+    i2cDev.busdev_u.i2c.device = 0;
+    i2cDev.busdev_u.i2c.address = 0x12;
+    //UNUSED(i2cDev);
+    //busReadRegisterBuffer(&i2cDev, 0x12, &i2cBuffer, 1);
+    //busWriteRegister(&i2cDev, 0x12, 1);
+
     static float previousGyroRateDterm[XYZ_AXIS_COUNT];
 #ifdef USE_INTERPOLATED_SP
     static FAST_DATA_ZERO_INIT uint32_t lastFrameNumber;
@@ -1103,7 +1274,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef USE_SO3
     if(mixerConfig()->mixerMode == MIXER_BICOPTER){
         // Use SO3 controller for bicopter only
-        float attitudeCurrent[3] = {attitude.values.roll/1800.0*M_PI, -attitude.values.pitch/1800.0*M_PI, attitude.values.yaw/1800.0*M_PI};
+        float attitudeCurrent[3] = {-attitude.values.roll/1800.0*M_PI, -attitude.values.pitch/1800.0*M_PI, attitude.values.yaw/1800.0*M_PI};
         // Pass through yaw command mapping PWM to +-150 deg/s
         //pidRuntime.desiredYAW = -getSetpointRate(FD_YAW) / 180.0f * M_PI;
 	
@@ -1117,12 +1288,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         }
         // Limit the yaw to be -pi to pi
         pidRuntime.desiredYAW = conv2std(pidRuntime.desiredYAW);*/
-        float attitudeDesire[3] = {(rcData[ROLL] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI ,
+        float attitudeDesire[3] = {-(rcData[ROLL] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI ,
                                    -(rcData[PITCH] - rxConfig()->midrc) / 500.0 * pidProfile->levelAngleLimit / 180.0 * M_PI,
 	                           pidRuntime.desiredYAW};
         // gyro are stored in the system with scaled value. Need to convert to rad/s
         // On TARGET OMNIBUSF4SD the pitch and yaw rate are in the opposite direction
-        float angularRate[3] = {gyro.gyroADCf[FD_ROLL] * 4.1 / 180.0 * M_PI,
+        float angularRate[3] = {-gyro.gyroADCf[FD_ROLL] * 4.1 / 180.0 * M_PI,
                                 -gyro.gyroADCf[FD_PITCH] * 4.1 / 180.0 * M_PI,
                                 -gyro.gyroADCf[FD_YAW] * 4.1 / 180.0 * M_PI};
         //printf("%f, %f, %f\n", angularRate[0], angularRate[1], angularRate[2]);
@@ -1137,6 +1308,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         //printf("output: pidRoll: %f,     pidPitch: %f,    pidYaw: %f\n", SO3Output[0], SO3Output[1], SO3Output[2]);
     }else{
     #endif
+        // Quaternion control, edited by Xiang He
+        // Date created: 12/10/2022
+        #ifdef QUATERNION_CONTROL
+            angularRateFromQuaternionError(pidProfile);
+        #endif
         // ----------PID controller----------
         for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
 
@@ -1159,6 +1335,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 FALLTHROUGH;
             case LEVEL_MODE_RP:
                 if (axis == FD_YAW) {
+                    #ifdef QUATERNION_CONTROL
+                        currentPidSetpoint = pidLevel(axis, pidProfile, angleTrim, currentPidSetpoint);
+                    #endif
                     break;
                 }
                 currentPidSetpoint = pidLevel(axis, pidProfile, angleTrim, currentPidSetpoint);

@@ -43,6 +43,8 @@ typedef struct mag_s {
     float magADC[XYZ_AXIS_COUNT];
 } mag_t;
 
+
+
 extern mag_t mag;
 
 typedef struct compassConfig_s {

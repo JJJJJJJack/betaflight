@@ -27,6 +27,8 @@
 #include "drivers/bus_i2c_busdev.h"
 #include "drivers/bus_spi.h"
 
+#include "flight/position.h"
+
 bool busRawWriteRegister(const busDevice_t *busdev, uint8_t reg, uint8_t data)
 {
 #ifdef USE_SPI

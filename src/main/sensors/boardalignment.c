@@ -33,6 +33,13 @@
 #include "pg/pg.h"
 #include "pg/pg_ids.h"
 
+#include "rx/rx.h"
+
+#include "fc/rc_controls.h"
+
+#include "flight/position.h"
+#include "flight/imu.h"
+
 #include "drivers/sensor.h"
 
 #include "boardalignment.h"
@@ -50,9 +57,9 @@ static bool isBoardAlignmentStandard(const boardAlignment_t *boardAlignment)
 
 void initBoardAlignment(const boardAlignment_t *boardAlignment)
 {
-    if (isBoardAlignmentStandard(boardAlignment)) {
+    /*if (isBoardAlignmentStandard(boardAlignment)) {
         return;
-    }
+    }*/
 
     standardBoardAlignment = false;
 
@@ -66,6 +73,18 @@ void initBoardAlignment(const boardAlignment_t *boardAlignment)
 
 static FAST_CODE void alignBoard(float *vec)
 {
+    // JJJJJJJack 2022-08-21
+    // Add board alignment offset through AUX1
+    /*float pitch_offset;
+    if(rcData[AUX1] <= 1500)
+        pitch_offset = 0;
+    else
+        pitch_offset = (rcData[AUX1] - 1500) / 500.0f * 90;
+    fp_angles_t rotationAngles;
+    rotationAngles.angles.roll  = 0;
+    rotationAngles.angles.pitch = -degreesToRadians(pitch_offset);
+    rotationAngles.angles.yaw   = 0;
+    buildRotationMatrix(&rotationAngles, &boardRotation);*/
     applyRotation(vec, &boardRotation);
 }
 

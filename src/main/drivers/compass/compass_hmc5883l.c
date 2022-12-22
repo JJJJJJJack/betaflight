@@ -43,6 +43,8 @@
 #include "drivers/sensor.h"
 #include "drivers/time.h"
 
+#include "flight/position.h"
+
 #include "compass.h"
 
 #include "compass_hmc5883l.h"
@@ -136,6 +138,8 @@
 
 #ifdef USE_MAG_DATA_READY_SIGNAL
 
+
+
 static void hmc5883_extiHandler(extiCallbackRec_t* cb)
 {
     UNUSED(cb);
@@ -200,13 +204,51 @@ static void hmc5883SpiInit(busDevice_t *busdev)
 }
 #endif
 
+int aaaaa=1;
+extern int aaaaa;
+
+
 static bool hmc5883lRead(magDev_t *mag, int16_t *magData)
 {
     uint8_t buf[6];
 
     busDevice_t *busdev = &mag->busdev;
 
-    bool ack = busReadRegisterBuffer(busdev, HMC58X3_REG_DATA, buf, 6);
+    //JJJJJJJack
+    uint8_t i2cBuffer[5];
+    i2cBuffer[0] = 0;
+    i2cBuffer[1] = 0;
+    busDevice_t i2cDev;
+    //busDeviceRegister(&i2cDev);
+    i2cDev.bustype = BUSTYPE_I2C;
+    i2cDev.busdev_u.i2c.device = I2C_DEV_TO_CFG(I2C_DEVICE);
+    i2cDev.busdev_u.i2c.address = 0x12;
+    busdev->busdev_u.i2c.address = 0x12;
+    //position_msp.msg1 = I2C_DEV_TO_CFG(I2C_DEVICE);
+    //position_msp.msg2 = busdev->busdev_u.i2c.device;
+    //UNUSED(i2cDev);
+    //busReadRegisterBuffer(&i2cDev, 0x12, &i2cBuffer, 1);
+    //busWriteRegister(&i2cDev, 0, 1);
+
+    // write
+    busWriteRegister(busdev, 0x12, 0x02);
+    busWriteRegister(busdev, 0x12, 0x86);
+    busWriteRegister(busdev, 0x12, 0x43);
+    busWriteRegister(busdev, 0x12, 0x21);
+    busWriteRegister(busdev, 0x12, 0x2C);
+    // read
+    /*busReadRegisterBuffer(busdev, 0x12, i2cBuffer, 5);
+    uint16_t roll, pitch, yaw, throttle;
+    roll = ((uint16_t)i2cBuffer[0] << 2) + ((uint16_t)i2cBuffer[1] >> 6);
+    pitch = ((((uint16_t)i2cBuffer[1])&0x3f) << 4) + ((uint16_t)i2cBuffer[2] >> 4);
+    yaw = ((((uint16_t)i2cBuffer[2])&0x0f) << 6) + ((uint16_t)i2cBuffer[3] >> 2);
+    throttle = ((((uint16_t)i2cBuffer[3])&0x03)<< 8) + ((uint16_t)i2cBuffer[4]);
+    position_msp.msg1 = roll;
+    position_msp.msg2 = pitch;
+    position_msp.msg3 = yaw;
+    position_msp.msg4 = throttle;*/
+    //busReadRegisterBuffer(busdev, HMC58X3_REG_DATA, buf, 6);
+    /*bool ack = busReadRegisterBuffer(busdev, HMC58X3_REG_DATA, buf, 6);
 
     if (!ack) {
         return false;
@@ -215,7 +257,7 @@ static bool hmc5883lRead(magDev_t *mag, int16_t *magData)
     magData[X] = (int16_t)(buf[0] << 8 | buf[1]);
     magData[Z] = (int16_t)(buf[2] << 8 | buf[3]);
     magData[Y] = (int16_t)(buf[4] << 8 | buf[5]);
-
+    */
     return true;
 }
 
@@ -253,6 +295,7 @@ bool hmc5883lDetect(magDev_t* mag)
     }
 #endif
 
+    //bool ack = true;
     bool ack = busReadRegisterBuffer(&mag->busdev, HMC58X3_REG_IDA, &sig, 1);
 
     if (!ack || sig != HMC5883_DEVICE_ID) {

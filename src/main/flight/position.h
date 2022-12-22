@@ -26,6 +26,26 @@ typedef struct positionConfig_s {
     uint8_t altSource;
 } positionConfig_t;
 
+typedef struct position_msp_debug_s {
+    /*uint8_t wp_no;
+    uint32_t lat;
+    uint32_t lon;
+    uint32_t AltHold;
+    uint16_t heading;
+    uint16_t time_to_stay;
+    uint8_t nav_flag;*/
+    int32_t msg1;
+    int32_t msg2;
+    int32_t msg3;
+    int32_t msg4;
+    int32_t msg5;
+    int32_t msg6;
+    int32_t msg7;
+} position_msp_debug;
+
+extern position_msp_debug position_msp;
+extern position_msp_debug setWP_msp;
+
 PG_DECLARE(positionConfig_t, positionConfig);
 
 bool isAltitudeOffset(void);
