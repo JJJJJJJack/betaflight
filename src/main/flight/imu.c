@@ -732,3 +732,8 @@ bool isUpright(void)
     return true;
 #endif
 }
+
+bool attitudeUpright(void)
+{
+    return (getCosTiltAngle() >= 0);
+}

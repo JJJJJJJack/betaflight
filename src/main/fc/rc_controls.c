@@ -113,6 +113,14 @@ bool areSticksInApModePosition(uint16_t ap_mode)
 throttleStatus_e calculateThrottleStatus(void)
 {
     if (featureIsEnabled(FEATURE_3D)) {
+        // Throttle status reconfigured in INVERTED_FLIGHT mode, by JJJJJJJack
+        // Date modified: 01/01/2023
+        #ifdef INVERTED_FLIGHT
+            if(rcData[THROTTLE] < rxConfig()->mincheck)
+                return THROTTLE_LOW;
+            else
+                return THROTTLE_HIGH;
+        #endif
         if (IS_RC_MODE_ACTIVE(BOX3D) || flight3DConfig()->switched_mode3d) {
             if (rcData[THROTTLE] < rxConfig()->mincheck) {
                 return THROTTLE_LOW;

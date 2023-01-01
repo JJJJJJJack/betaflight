@@ -43,8 +43,10 @@
 
 #include "fc/rc_controls.h"
 #include "fc/rc_modes.h"
+#include "fc/rc.h"
 
 #include "flight/failsafe.h"
+#include "flight/position.h"
 
 #include "io/serial.h"
 
@@ -278,7 +280,15 @@ void rxInit(void)
         rcInvalidPulsPeriod[i] = millis() + MAX_INVALID_PULS_TIME;
     }
 
+    // JJJJJJJack
+    // Init the default throttle value to be buttom when INVERTED_FLIGHT enabled
+    // Date modified: 01/01/2023
     rcData[THROTTLE] = (featureIsEnabled(FEATURE_3D)) ? rxConfig()->midrc : rxConfig()->rx_min_usec;
+    #ifdef INVERTED_FLIGHT
+        if(featureIsEnabled(FEATURE_3D)){
+            rcData[THROTTLE] = rxConfig()->rx_min_usec;
+        }
+    #endif
 
     // Initialize ARM switch to OFF position when arming via switch is defined
     // TODO - move to rc_mode.c
@@ -554,6 +564,13 @@ static uint16_t getRxfailValue(uint8_t channel)
         case YAW:
             return rxConfig()->midrc;
         case THROTTLE:
+            // Failsafe rc throttle for inverted flight, by JJJJJJJack
+            // Date modified: 01/01/2023
+            #ifdef INVERTED_FLIGHT
+                if(featureIsEnabled(FEATURE_3D)){
+                  return rxConfig()->rx_min_usec;
+                }
+            #endif
             if (featureIsEnabled(FEATURE_3D) && !IS_RC_MODE_ACTIVE(BOX3D) && !flight3DConfig()->switched_mode3d) {
                 return rxConfig()->midrc;
             } else {

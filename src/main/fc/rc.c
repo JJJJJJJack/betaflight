@@ -45,6 +45,7 @@
 #include "flight/interpolated_setpoint.h"
 #include "flight/gps_rescue.h"
 #include "flight/pid_init.h"
+#include "flight/position.h"
 
 #include "pg/rx.h"
 
@@ -795,9 +796,9 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
     if (getLowVoltageCutoff()->enabled) {
         tmp = tmp * getLowVoltageCutoff()->percentage / 100;
     }
-
+    position_msp.msg4 = tmp;
     rcCommand[THROTTLE] = rcLookupThrottle(tmp);
-
+    position_msp.msg3 = rcCommand[THROTTLE];
     if (featureIsEnabled(FEATURE_3D) && !failsafeIsActive()) {
         if (!flight3DConfig()->switched_mode3d) {
             if (IS_RC_MODE_ACTIVE(BOX3D)) {
@@ -816,6 +817,21 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
             }
         }
     }
+#ifdef INVERTED_FLIGHT
+    // Inverted flight added by JJJJJJJack
+    // Date created: 01/01/2023
+    // Remap the rcData from 1000-2000 to 1500-2000 for upright flight and 1500-1000 for inverted flight
+    if (featureIsEnabled(FEATURE_3D)){
+        // Only allow inverted flight when 3D mode is enabled
+        if (attitudeUpright()){
+            rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+        } else {
+            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+        }
+    }
+    position_msp.msg1 = rcCommand[THROTTLE];
+    position_msp.msg2 = rxConfig()->midrc;
+#endif
     if (FLIGHT_MODE(HEADFREE_MODE)) {
         static t_fp_vector_def  rcCommandBuff;
 

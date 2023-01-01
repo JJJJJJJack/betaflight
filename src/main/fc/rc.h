@@ -24,6 +24,8 @@
 
 #include "fc/rc_controls.h"
 
+#define INVERTED_FLIGHT
+
 typedef enum {
     INTERPOLATION_CHANNELS_RP,
     INTERPOLATION_CHANNELS_RPY,

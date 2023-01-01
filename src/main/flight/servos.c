@@ -529,7 +529,7 @@ static void servoTable(void)
     // if bicopter
     // servo left += pitch_offset * pitch_to_servo_ratio;
     // servo right -= pitch_offset * pitch_to_servo_ratio;
-    if(getMixerMode() == MIXER_BICOPTER){
+    /*if(getMixerMode() == MIXER_BICOPTER){
         float pitch_offset;
         if(rcData[AUX1] <= 1500)
             pitch_offset = 0;
@@ -541,7 +541,7 @@ static void servoTable(void)
         // pusher
         servo[SERVO_BICOPTER_LEFT] -= pitch_offset * PITCH_SERVO_RATIO;
         servo[SERVO_BICOPTER_RIGHT] += pitch_offset * PITCH_SERVO_RATIO;
-    }
+    }*/
     
 
     // constrain servos

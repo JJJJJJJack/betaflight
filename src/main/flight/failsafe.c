@@ -40,6 +40,7 @@
 #include "fc/runtime_config.h"
 
 #include "flight/failsafe.h"
+#include "flight/position.h"
 
 #include "io/beeper.h"
 
