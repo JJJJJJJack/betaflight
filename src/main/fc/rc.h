@@ -59,3 +59,6 @@ uint32_t getRcFrameNumber();
 float getRcCurveSlope(int axis, float deflection);
 void updateRcRefreshRate(timeUs_t currentTimeUs);
 uint16_t getCurrentRxRefreshRate(void);
+#ifdef INVERTED_FLIGHT
+    float getInvertedFlightAngle(int axis); 
+#endif

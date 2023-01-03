@@ -38,6 +38,8 @@
 #include "drivers/motor.h"
 #include "drivers/timer.h"
 
+#include "flight/position.h"
+
 #include "drivers/dshot_dpwm.h" // for motorDmaOutput_t, should be gone
 #include "drivers/dshot_command.h"
 #include "drivers/nvic.h"
@@ -53,9 +55,13 @@ void dshotInitEndpoints(const motorConfig_t *motorConfig, float outputLimit, flo
     float outputLimitOffset = (DSHOT_MAX_THROTTLE - DSHOT_MIN_THROTTLE) * (1 - outputLimit);
     *disarm = DSHOT_CMD_MOTOR_STOP;
     if (featureIsEnabled(FEATURE_3D)) {
+        //outputLow: 102
         *outputLow = DSHOT_MIN_THROTTLE + ((DSHOT_3D_FORWARD_MIN_THROTTLE - 1 - DSHOT_MIN_THROTTLE) / 100.0f) * CONVERT_PARAMETER_TO_PERCENT(motorConfig->digitalIdleOffsetValue);
+        //outputHigh: 2047
         *outputHigh = DSHOT_MAX_THROTTLE - outputLimitOffset / 2;
+        //deadbandMotor3dHigh: 1102
         *deadbandMotor3dHigh = DSHOT_3D_FORWARD_MIN_THROTTLE + ((DSHOT_MAX_THROTTLE - DSHOT_3D_FORWARD_MIN_THROTTLE) / 100.0f) * CONVERT_PARAMETER_TO_PERCENT(motorConfig->digitalIdleOffsetValue);
+        //deadbandMotor3dLow: 1047
         *deadbandMotor3dLow = DSHOT_3D_FORWARD_MIN_THROTTLE - 1 - outputLimitOffset / 2;
     } else {
         *outputLow = DSHOT_MIN_THROTTLE + ((DSHOT_MAX_THROTTLE - DSHOT_MIN_THROTTLE) / 100.0f) * CONVERT_PARAMETER_TO_PERCENT(motorConfig->digitalIdleOffsetValue);

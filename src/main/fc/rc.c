@@ -74,6 +74,7 @@ static uint16_t currentRxRefreshRate;
 static bool isRxDataNew = false;
 static float rcCommandDivider = 500.0f;
 static float rcCommandYawDivider = 500.0f;
+static float inverted_flight_angle[XYZ_AXIS_COUNT];
 
 FAST_DATA_ZERO_INIT uint8_t interpolationChannels;
 static FAST_DATA_ZERO_INIT uint32_t rcFrameNumber;
@@ -796,9 +797,7 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
     if (getLowVoltageCutoff()->enabled) {
         tmp = tmp * getLowVoltageCutoff()->percentage / 100;
     }
-    position_msp.msg4 = tmp;
     rcCommand[THROTTLE] = rcLookupThrottle(tmp);
-    position_msp.msg3 = rcCommand[THROTTLE];
     if (featureIsEnabled(FEATURE_3D) && !failsafeIsActive()) {
         if (!flight3DConfig()->switched_mode3d) {
             if (IS_RC_MODE_ACTIVE(BOX3D)) {
@@ -829,8 +828,13 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
             rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
         }
     }
-    position_msp.msg1 = rcCommand[THROTTLE];
-    position_msp.msg2 = rxConfig()->midrc;
+    if(fabs(rcData[AUX4] - rcDataPrevious[AUX4]) >= 300){
+        inverted_flight_angle[FD_YAW] = 0;
+        inverted_flight_angle[FD_PITCH] = 180.0f;
+        inverted_flight_angle[FD_ROLL] = 0;
+    }
+    rcDataPrevious[AUX4] = rcData[AUX4];
+    
 #endif
     if (FLIGHT_MODE(HEADFREE_MODE)) {
         static t_fp_vector_def  rcCommandBuff;
@@ -951,3 +955,9 @@ bool rcSmoothingInitializationComplete(void) {
     return (rxConfig()->rc_smoothing_type != RC_SMOOTHING_TYPE_FILTER) || rcSmoothingData.filterInitialized;
 }
 #endif // USE_RC_SMOOTHING_FILTER
+
+#ifdef INVERTED_FLIGHT
+float getInvertedFlightAngle(int axis){
+    return inverted_flight_angle[axis];
+}
+#endif

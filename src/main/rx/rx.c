@@ -109,6 +109,7 @@ static uint8_t  skipRxSamples = 0;
 
 static int16_t rcRaw[MAX_SUPPORTED_RC_CHANNEL_COUNT];     // interval [1000;2000]
 int16_t rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];     // interval [1000;2000]
+int16_t rcDataPrevious[MAX_SUPPORTED_RC_CHANNEL_COUNT] = {1500, 1500, 1500, 1500};     // interval [1000;2000]
 uint32_t rcInvalidPulsPeriod[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 
 #define MAX_INVALID_PULS_TIME    300
