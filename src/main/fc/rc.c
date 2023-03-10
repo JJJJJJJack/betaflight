@@ -74,7 +74,12 @@ static uint16_t currentRxRefreshRate;
 static bool isRxDataNew = false;
 static float rcCommandDivider = 500.0f;
 static float rcCommandYawDivider = 500.0f;
-static float inverted_flight_angle[XYZ_AXIS_COUNT];
+
+#ifdef INVERTED_FLIGHT
+timeUs_t FlipTriggerTimeMs;
+bool FLIP_FORWARD = false;
+float inverted_flight_angle[XYZ_AXIS_COUNT] = {0,0,0};
+#endif
 
 FAST_DATA_ZERO_INIT uint8_t interpolationChannels;
 static FAST_DATA_ZERO_INIT uint32_t rcFrameNumber;
@@ -825,15 +830,18 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
         if (attitudeUpright()){
             rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
         } else {
-            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+            // increase the inverted throttle by 50%
+            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.55f;
         }
     }
-    if(fabs(rcData[AUX4] - rcDataPrevious[AUX4]) >= 300){
-        inverted_flight_angle[FD_YAW] = 0;
-        inverted_flight_angle[FD_PITCH] = 180.0f;
-        inverted_flight_angle[FD_ROLL] = 0;
+    if(fabs(rcData[AUX6] - rcDataPrevious[AUX6]) >= 600){
+        // Add feedforward angle calculation JJJJJJJack
+        // Date created: 02/17/2023
+        FlipTriggerTimeMs = micros();
+        FLIP_FORWARD = !FLIP_FORWARD;
+        inverted_flight_angle[FD_PITCH] = M_PI - inverted_flight_angle[FD_PITCH];
     }
-    rcDataPrevious[AUX4] = rcData[AUX4];
+    rcDataPrevious[AUX6] = rcData[AUX6];
     
 #endif
     if (FLIGHT_MODE(HEADFREE_MODE)) {
@@ -956,8 +964,3 @@ bool rcSmoothingInitializationComplete(void) {
 }
 #endif // USE_RC_SMOOTHING_FILTER
 
-#ifdef INVERTED_FLIGHT
-float getInvertedFlightAngle(int axis){
-    return inverted_flight_angle[axis];
-}
-#endif

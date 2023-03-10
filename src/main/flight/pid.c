@@ -127,6 +127,22 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
 #define ACRO_TRAINER_SETPOINT_LIMIT       1000.0f // Limit the correcting setpoint
 #endif // USE_ACRO_TRAINER
 
+#ifdef INVERTED_FLIGHT
+#define FLIP_TIME 0.43f
+#define TRAJ_ORDER 6
+// Iyy/D/(0.45*9.8)
+#define ACC_TO_SERVO_ANGLE 0.008658008658009f
+float Poly_Coeff[TRAJ_ORDER] = {
+    5.00331225216112e-11,
+    -2.24814698364269e-10,
+    1.27547076873389e-09,
+    395.134095559573,
+    -1378.37475195903,
+    1282.20907159147
+};
+#define SERVO_ANGLE_TO_PWM 159.1549430918954f
+#endif
+
 #define CRASH_RECOVERY_DETECTION_DELAY_US 1000000  // 1 second delay before crash recovery detection is active after entering a self-level mode
 
 #define LAUNCH_CONTROL_YAW_ITERM_LIMIT 50 // yaw iterm windup limit when launch mode is "FULL" (all axes)
@@ -382,9 +398,6 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #ifdef USE_GPS_RESCUE
     angle += gpsRescueAngle[axis] / 100; // ANGLE IS IN CENTIDEGREES
 #endif
-#ifdef INVERTED_FLIGHT
-    angle += getInvertedFlightAngle(axis);
-#endif
     angle = constrainf(angle, -pidProfile->levelAngleLimit, pidProfile->levelAngleLimit);
     //printf("Desired angle on axis: %d,   %f\n", axis, angle);
     const float errorAngle = angle - ((attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f);
@@ -398,7 +411,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
         currentPidSetpoint = currentPidSetpoint + (errorAngle * pidRuntime.horizonGain * horizonLevelStrength);
     }
     #ifdef QUATERNION_CONTROL
-        return angularRateDesired[axis] * pidRuntime.levelGain;
+        return angularRateDesired[axis];
     #endif
     return currentPidSetpoint;
 }
@@ -407,23 +420,46 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 // Date created: 12/10/2022
 #ifdef QUATERNION_CONTROL
 void angularRateFromQuaternionError(const pidProfile_t *pidProfile){
-    float eulerAngleYPR[3], quat_des[4], quat_ang[4], quat_ang_inv[4], quat_diff[4], axisAngle[4];
+    float eulerAngleYPR[3], quat_des_RC[4], quat_des[4], quat_ang[4], quat_ang_inv[4], quat_diff[4], axisAngle[4];
     quaternion q_ang = QUATERNION_INITIALIZE;
     arming_state = ARMING_FLAG(ARMED);
-    calc_psi_des(getRcDeflection(FD_YAW), attitude.raw, arming_state, previous_arming_state, &Yaw_desire);
+    calc_psi_des(getRcDeflection(FD_YAW), DEGREES_TO_RADIANS(attitude.raw[2]/10.0f), arming_state, previous_arming_state, &Yaw_desire);
     previous_arming_state = arming_state;
     eulerAngleYPR[0] = conv2std(Yaw_desire);
     eulerAngleYPR[1] = (pidProfile->levelAngleLimit * getRcDeflection(FD_PITCH))/57.3f;
     eulerAngleYPR[2] = pidProfile->levelAngleLimit * getRcDeflection(FD_ROLL)/57.3f;
+    //eulerAngleYPR[2] = attitudeUpright() ? eulerAngleYPR[2] : 0 - eulerAngleYPR[2];
+    //eul2quatZYX(eulerAngleYPR, quat_des_RC);
+
+    /*#ifdef INVERTED_FLIGHT
+    float eulerFeedForwardYPR[3] = {0,0,0}, quat_FeedForward[4];
+    eulerFeedForwardYPR[1] = conv2std(getFeedForwardFlipAngle(micros()));
+    eul2quatZYX(eulerFeedForwardYPR, quat_FeedForward);
+    quaternionMultiply(quat_FeedForward, quat_des_RC, quat_des);
+    #else
+    memcpy(quat_des, quat_des_RC, 16);
+    #endif*/
+
+    
+    #ifdef INVERTED_FLIGHT
+        // When manually flip the vehicle for inverted takeoff, invert the yaw
+        if(!ARMING_FLAG(ARMED) && !attitudeUpright())
+            eulerAngleYPR[0] = conv2std(eulerAngleYPR[0] + M_PI);
+        eulerAngleYPR[1] += getFeedForwardFlipAngle(micros());
+        eulerAngleYPR[1] = conv2std(eulerAngleYPR[1]);
+        eulerAngleYPR[2] = attitudeUpright() ? eulerAngleYPR[2] : 0 - eulerAngleYPR[2];
+    #endif
     eul2quatZYX(eulerAngleYPR, quat_des);
+
+    quaternionNormalize(quat_des, quat_des);
     getQuaternion(&q_ang);
     quat_ang[0] = q_ang.w; quat_ang[1] = q_ang.x; quat_ang[2] = q_ang.y; quat_ang[3] = q_ang.z;
     quaternionInverse(quat_ang, quat_ang_inv);
     quaternionMultiply(quat_ang_inv, quat_des, quat_diff);
     quaternionToAxisAngle(quat_diff, axisAngle);
-    angularRateDesired[FD_ROLL] = axisAngle[0] * axisAngle[3] * 57.3f;
-    angularRateDesired[FD_PITCH] = axisAngle[1] * axisAngle[3] * 57.3f;
-    angularRateDesired[FD_YAW] = axisAngle[2] * axisAngle[3] * 57.3f;
+    angularRateDesired[FD_ROLL] = RADIANS_TO_DEGREES(axisAngle[0] * axisAngle[3])* pidRuntime.levelGain;
+    angularRateDesired[FD_PITCH] = RADIANS_TO_DEGREES(axisAngle[1] * axisAngle[3]) * pidRuntime.levelGain;// + RADIANS_TO_DEGREES(getFeedForwardFlipAngularRate(micros()));
+    angularRateDesired[FD_YAW] = RADIANS_TO_DEGREES(axisAngle[2] * axisAngle[3]) * pidRuntime.levelGain;
 }
 #endif
 
@@ -818,14 +854,14 @@ float conv2std(float input_angle)
 // Integration of psi stick input to the desired psi
 // Input:
 //     psi_sp_diff: Stick input
-//     eulerAngle[3]: roll, pitch, yaw
+//     psi_current: Current yaw
 //     armed: Current arm state
 //     armed_prev: Last arm state
 // Output:
 //     psi_des: Pointer to the desired psi
-void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  armed_prev, float * psi_des)
+void calc_psi_des(float psi_sp_diff, float psi_current,  bool armed, bool  armed_prev, float * psi_des)
 {
-  float psi = eulerAngle[2];
+  float psi = psi_current;
   
   if(!armed)
     *psi_des = psi + psi_sp_diff;
@@ -838,7 +874,7 @@ void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  arm
   if (fabs(psi_sp_diff) >= 0.01){
     /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
     //float psi_integral = psi + psi_sp_diff;
-    *psi_des += psi_sp_diff*0.01f;
+    *psi_des += psi_sp_diff*0.005f;
   }
 }
 
@@ -1282,7 +1318,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         //pidRuntime.desiredYAW = -getSetpointRate(FD_YAW) / 180.0f * M_PI;
 	
         pidRuntime.arming_state = ARMING_FLAG(ARMED);
-	calc_psi_des((rcData[YAW] - rxConfig()->midrc) / 500.0, attitudeCurrent, pidRuntime.arming_state, pidRuntime.previous_arming_state, &(pidRuntime.desiredYAW));
+	calc_psi_des((rcData[YAW] - rxConfig()->midrc) / 500.0, attitudeCurrent[2], pidRuntime.arming_state, pidRuntime.previous_arming_state, &(pidRuntime.desiredYAW));
 	pidRuntime.previous_arming_state = pidRuntime.arming_state;
         /*if(fabs(rcData[YAW] - rxConfig()->midrc) > rcControlsConfig()->yaw_deadband){
             // Add rc input to desired yaw
@@ -1516,11 +1552,19 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     #endif
 
             // Only enable feedforward for rate mode and if launch control is inactive
-            const float feedforwardGain = (flightModeFlags || launchControlActive) ? 0.0f : pidRuntime.pidCoefficient[axis].Kf;
+            float feedforwardGain = (flightModeFlags || launchControlActive) ? 0.0f : pidRuntime.pidCoefficient[axis].Kf;
+            #ifdef INVERTED_FLIGHT
+            // Add feedforward for inverted flight, JJJJJJJack
+            feedforwardGain = pidRuntime.pidCoefficient[axis].Kf;
+            #endif
             if (feedforwardGain > 0) {
                 // no transition if feedForwardTransition == 0
                 float transition = pidRuntime.feedForwardTransition > 0 ? MIN(1.f, getRcDeflectionAbs(axis) * pidRuntime.feedForwardTransition) : 1;
-                float feedForward = feedforwardGain * transition * pidSetpointDelta * pidRuntime.pidFrequency;
+                #ifdef INVERTED_FLIGHT
+                float feedForward = 0;//feedforwardGain * getFeedForwardFlipAngularAcc(micros()) * 100.0f;
+                #else
+                float feedForward = feedforwardGain * pidSetpointDelta * pidRuntime.pidFrequency;
+                #endif
 
     #ifdef USE_INTERPOLATED_SP
                 pidData[axis].F = shouldApplyFfLimits(axis) ?
@@ -1693,3 +1737,66 @@ float pidGetPidFrequency()
 {
     return pidRuntime.pidFrequency;
 }
+
+
+
+#ifdef INVERTED_FLIGHT
+
+// Function input:
+//   t: current time, called by micros()
+float getFeedForwardFlipAngle(timeUs_t t){
+    /*float triggered_time = (t - FlipTriggerTimeMs) * 1e-06;
+    float FFAngle = 0;
+    if(triggered_time >= 0 && triggered_time <= FLIP_TIME){
+        for(int i = (triggered_time < FLIP_TIME / 2.0f) ? 3 : 0; i < TRAJ_ORDER; i++){
+            FFAngle += Poly_Coeff[i] * pow(triggered_time, i);
+        }
+        FFAngle = FLIP_FORWARD ? FFAngle : -FFAngle + M_PI;
+        inverted_flight_angle[FD_PITCH] = FFAngle;
+        return FFAngle;
+    }else{
+        return inverted_flight_angle[FD_PITCH];
+    }*/
+    return inverted_flight_angle[FD_PITCH];
+}
+
+float getFeedForwardFlipAngularRate(timeUs_t t){
+    float triggered_time = (t - FlipTriggerTimeMs) * 1e-06;
+    float FFAngularRate = 0;
+    if(triggered_time >= 0 && triggered_time <= FLIP_TIME){
+        for(int i = (triggered_time < FLIP_TIME / 2.0f) ? 3 : 1; i < TRAJ_ORDER; i++){
+            FFAngularRate += i * Poly_Coeff[i] * pow(triggered_time, i-1);
+        }
+        FFAngularRate = FLIP_FORWARD ? FFAngularRate : -FFAngularRate;
+        return FFAngularRate;
+    }else{
+        return 0;
+    }
+}
+
+float getFeedForwardFlipAngularAcc(timeUs_t t){
+    float triggered_time = (t - FlipTriggerTimeMs) * 1e-06;
+    float FFAngularACC = 0;
+    if(triggered_time >= 0 && triggered_time <= FLIP_TIME){
+        for(int i = (triggered_time < FLIP_TIME / 2.0f) ? 3 : 2; i < TRAJ_ORDER; i++){
+            FFAngularACC += i * (i-1) * Poly_Coeff[i] * pow(triggered_time, i-2);
+        }
+        if(mixerConfig()->mixerMode == MIXER_BICOPTER){
+            // Reverse the second half ACC to make sure it continous in time
+            if(triggered_time < FLIP_TIME / 2.0f)
+                FFAngularACC = FLIP_FORWARD ? FFAngularACC : -FFAngularACC;
+            else
+                FFAngularACC = FLIP_FORWARD ? -FFAngularACC : FFAngularACC;
+        }else
+            FFAngularACC = FLIP_FORWARD ? FFAngularACC : -FFAngularACC;
+        return FFAngularACC;
+    }else{
+        return 0;
+    }
+}
+
+float getFeedForwardFlipServoPWM(timeUs_t t){
+    return asin(getFeedForwardFlipAngularAcc(t)*ACC_TO_SERVO_ANGLE)*SERVO_ANGLE_TO_PWM;
+}
+
+#endif

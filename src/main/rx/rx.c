@@ -278,6 +278,10 @@ void rxInit(void)
 
     for (int i = 0; i < MAX_SUPPORTED_RC_CHANNEL_COUNT; i++) {
         rcData[i] = rxConfig()->midrc;
+        #ifdef INVERTED_FLIGHT
+        // JJJJJJJack, initialize rcDataPrevious only for flip switch
+        rcDataPrevious[i] = rxConfig()->midrc;
+        #endif
         rcInvalidPulsPeriod[i] = millis() + MAX_INVALID_PULS_TIME;
     }
 

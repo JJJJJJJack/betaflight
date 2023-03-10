@@ -57,6 +57,7 @@
 #include "flight/mixer_tricopter.h"
 #include "flight/pid.h"
 #include "flight/rpm_filter.h"
+#include "flight/position.h"
 
 #include "rx/rx.h"
 
@@ -606,17 +607,43 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
             throttle = 0;
             currentThrottleInputRange = rcCommandThrottleRange3dLow;
         } else {
-            // NORMAL_TO_DEADBAND
-            motorRangeMin = deadbandMotor3dHigh;
-            motorRangeMax = motorOutputHigh;
-            motorOutputMin = deadbandMotor3dHigh;
-            motorOutputRange = motorOutputHigh - deadbandMotor3dHigh;
-            if (motorOutputMixSign != 1) {
-                reversalTimeUs = currentTimeUs;
+            #ifdef INVERTED_FLIGHT
+            if(attitudeUpright()){
+            #endif
+                // NORMAL_TO_DEADBAND
+                motorRangeMin = deadbandMotor3dHigh;
+                motorRangeMax = motorOutputHigh;
+                motorOutputMin = deadbandMotor3dHigh;
+                motorOutputRange = motorOutputHigh - deadbandMotor3dHigh;
+                if (motorOutputMixSign != 1) {
+                    reversalTimeUs = currentTimeUs;
+                }
+                motorOutputMixSign = 1;
+                throttle = 0;
+                currentThrottleInputRange = rcCommandThrottleRange3dHigh;
+            #ifdef INVERTED_FLIGHT
+            }else{
+                // INVERTED
+                motorRangeMin = motorOutputLow;
+                motorRangeMax = deadbandMotor3dLow;
+    #ifdef USE_DSHOT
+                if (isMotorProtocolDshot()) {
+                    motorOutputMin = motorOutputLow;
+                    motorOutputRange = deadbandMotor3dLow - motorOutputLow;
+                } else
+    #endif
+                {
+                    motorOutputMin = deadbandMotor3dLow;
+                    motorOutputRange = motorOutputLow - deadbandMotor3dLow;
+                }
+                if (motorOutputMixSign != -1) {
+                    reversalTimeUs = currentTimeUs;
+                }
+                motorOutputMixSign = -1;
+                throttle = 0;
+                currentThrottleInputRange = rcCommandThrottleRange3dLow;
             }
-            motorOutputMixSign = 1;
-            throttle = 0;
-            currentThrottleInputRange = rcCommandThrottleRange3dHigh;
+            #endif
         }
         if (currentTimeUs - reversalTimeUs < 250000) {
             // keep iterm zero for 250ms after motor reversal
@@ -666,7 +693,6 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
         motorOutputRange = motorRangeMax - motorRangeMin;
         motorOutputMixSign = 1;
     }
-
     throttle = constrainf(throttle / currentThrottleInputRange, 0.0f, 1.0f);
 }
 
@@ -759,7 +785,6 @@ static void applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t 
         motorOutput = pidApplyThrustLinearization(motorOutput);
 #endif
         motorOutput = motorOutputMin + motorOutputRange * motorOutput;
-
 #ifdef USE_SERVOS
         if (mixerIsTricopter()) {
             motorOutput += mixerTricopterMotorCorrection(i);
@@ -777,7 +802,10 @@ static void applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t 
         }
         motor[i] = motorOutput;
     }
-
+    //position_msp.msg1 = motor[0];
+    //position_msp.msg2 = motor[1];
+    //position_msp.msg3 = motor[2];
+    //position_msp.msg4 = motor[3];
     // Disarmed mode
     if (!ARMING_FLAG(ARMED)) {
         for (int i = 0; i < motorCount; i++) {

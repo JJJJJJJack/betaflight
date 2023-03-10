@@ -42,11 +42,13 @@
 #include "fc/rc_controls.h"
 #include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
+#include "fc/rc.h"
 
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "flight/servos.h"
+#include "flight/position.h"
 
 #include "io/gimbal.h"
 
@@ -416,9 +418,9 @@ void servoMixer(void)
         input[INPUT_STABILIZED_YAW] = pidData[FD_YAW].Sum * PID_SERVO_MIXER_SCALING;
 
         // Reverse yaw servo when inverted in 3D mode
-        if (featureIsEnabled(FEATURE_3D) && (rcData[THROTTLE] < rxConfig()->midrc)) {
-            input[INPUT_STABILIZED_YAW] *= -1;
-        }
+        //if (featureIsEnabled(FEATURE_3D) && (rcData[THROTTLE] < rxConfig()->midrc)) {
+        //    input[INPUT_STABILIZED_YAW] *= -1;
+        //}
     }
 
     input[INPUT_GIMBAL_PITCH] = scaleRange(attitude.values.pitch, -1800, 1800, -500, +500);
@@ -463,17 +465,32 @@ void servoMixer(void)
                 else if (currentOutput[i] > input[from])
                     currentOutput[i] = constrain(currentOutput[i] - currentServoMixer[i].speed, input[from], currentOutput[i]);
             }
-
+            #ifdef INVERTED_FLIGHT
+            if(attitudeUpright()){
+            #endif
             servo[target] += servoDirection(target, from) * constrain(((int32_t)currentOutput[i] * currentServoMixer[i].rate) / 100, min, max);
+            #ifdef INVERTED_FLIGHT
+            }else{
+                servo[target] += servoDirection(target, from) * constrain(((int32_t)currentOutput[i] * currentServoMixer[i].rate * -1.0) / 100, min, max);
+            }
+            #endif
         } else {
             currentOutput[i] = 0;
         }
     }
-
+    #ifdef INVERTED_FLIGHT
+    // Add feedforward 
+    servo[4] += getFeedForwardFlipServoPWM(micros());  
+    servo[5] += getFeedForwardFlipServoPWM(micros()); 
+    //position_msp.msg4 = servo[4];
+    //position_msp.msg5 = servo[5];
+    #endif
     for (int i = 0; i < MAX_SUPPORTED_SERVOS; i++) {
         servo[i] = ((int32_t)servoParams(i)->rate * servo[i]) / 100L;
         servo[i] += determineServoMiddleOrForwardFromChannel(i);
     }
+    //position_msp.msg3 = servo[4];
+    //position_msp.msg4 = servo[5];
 }
 
 

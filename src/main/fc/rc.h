@@ -21,10 +21,16 @@
 #pragma once
 
 #include "drivers/time.h"
-
+#include "common/axis.h"
 #include "fc/rc_controls.h"
 
 #define INVERTED_FLIGHT
+
+#ifdef INVERTED_FLIGHT
+extern timeUs_t FlipTriggerTimeMs;
+extern bool FLIP_FORWARD;
+extern float inverted_flight_angle[XYZ_AXIS_COUNT];
+#endif
 
 typedef enum {
     INTERPOLATION_CHANNELS_RP,
@@ -59,6 +65,3 @@ uint32_t getRcFrameNumber();
 float getRcCurveSlope(int axis, float deflection);
 void updateRcRefreshRate(timeUs_t currentTimeUs);
 uint16_t getCurrentRxRefreshRate(void);
-#ifdef INVERTED_FLIGHT
-    float getInvertedFlightAngle(int axis); 
-#endif

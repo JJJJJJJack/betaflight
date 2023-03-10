@@ -404,7 +404,7 @@ void pidSetAntiGravityState(bool newState);
 bool pidAntiGravityEnabled(void);
 float sign(float x);
 float conv2std(float input_angle);
-void calc_psi_des(float psi_sp_diff, float eulerAngle[3],  bool armed, bool  armed_prev, float * psi_des);
+void calc_psi_des(float psi_sp_diff, float psi_current,  bool armed, bool  armed_prev, float * psi_des);
 void eul2quatZYX(float eulerAngle[3], float * quaternion);
 float quaternionNorm(float quat[4]);
 void quaternionNormalize(float quat[4], float * result);
@@ -446,3 +446,10 @@ float pidGetPidFrequency();
 float pidGetFfBoostFactor();
 float pidGetFfSmoothFactor();
 float dynLpfCutoffFreq(float throttle, uint16_t dynLpfMin, uint16_t dynLpfMax, uint8_t expo);
+
+#ifdef INVERTED_FLIGHT
+    float getFeedForwardFlipAngle(timeUs_t t); 
+    float getFeedForwardFlipAngularRate(timeUs_t t);
+    float getFeedForwardFlipAngularAcc(timeUs_t t);
+    float getFeedForwardFlipServoPWM(timeUs_t t);
+#endif
