@@ -30,6 +30,12 @@
 extern timeUs_t FlipTriggerTimeMs;
 extern bool FLIP_FORWARD;
 extern float inverted_flight_angle[XYZ_AXIS_COUNT];
+#define FLIP_TIME 0.4f
+enum THROTTLE_DIRECTION {
+    THROTTLE_NORMAL = 0,
+    THROTTLE_REVERSED,
+};
+extern enum THROTTLE_DIRECTION throttle_direction;
 #endif
 
 typedef enum {

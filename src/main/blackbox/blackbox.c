@@ -243,7 +243,10 @@ static const blackboxDeltaFieldDefinition_t blackboxMainFields[] = {
     {"motor",       7, UNSIGNED, .Ipredict = PREDICT(MOTOR_0), .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(AVERAGE_2),     .Pencode = ENCODING(SIGNED_VB), CONDITION(AT_LEAST_MOTORS_8)},
 
     /* Tricopter tail servo */
-    {"servo",       5, UNSIGNED, .Ipredict = PREDICT(1500),    .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(TRICOPTER)}
+    {"servo",       5, UNSIGNED, .Ipredict = PREDICT(1500),    .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(TRICOPTER)},
+        /* Bicopter servo */
+    {"servo",       4, UNSIGNED, .Ipredict = PREDICT(1500),    .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(BICOPTER)},
+    {"servo",       5, UNSIGNED, .Ipredict = PREDICT(1500),    .Iencode = ENCODING(SIGNED_VB),   .Ppredict = PREDICT(PREVIOUS),      .Pencode = ENCODING(SIGNED_VB), CONDITION(BICOPTER)},
 };
 
 #ifdef USE_GPS
@@ -433,6 +436,9 @@ static bool testBlackboxConditionUncached(FlightLogFieldCondition condition)
 
     case CONDITION(TRICOPTER):
         return (mixerConfig()->mixerMode == MIXER_TRI || mixerConfig()->mixerMode == MIXER_CUSTOM_TRI) && isFieldEnabled(FIELD_SELECT(MOTOR));
+
+    case CONDITION(BICOPTER):
+        return (mixerConfig()->mixerMode == MIXER_BICOPTER && isFieldEnabled(FIELD_SELECT(MOTOR)));
 
     case CONDITION(PID):
         return isFieldEnabled(FIELD_SELECT(PID));
@@ -649,6 +655,10 @@ static void writeIntraframe(void)
             //Assume the tail spends most of its time around the center
             blackboxWriteSignedVB(blackboxCurrent->servo[5] - 1500);
         }
+        if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_BICOPTER)) {
+            blackboxWriteSignedVB(blackboxCurrent->servo[4] - 1500);
+            blackboxWriteSignedVB(blackboxCurrent->servo[5] - 1500);
+        }
     }
 
     //Rotate our history buffers:
@@ -788,6 +798,10 @@ static void writeInterframe(void)
         blackboxWriteMainStateArrayUsingAveragePredictor(offsetof(blackboxMainState_t, motor),     getMotorCount());
 
         if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_TRICOPTER)) {
+            blackboxWriteSignedVB(blackboxCurrent->servo[5] - blackboxLast->servo[5]);
+        }
+        if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_BICOPTER)) {
+            blackboxWriteSignedVB(blackboxCurrent->servo[4] - blackboxLast->servo[4]);
             blackboxWriteSignedVB(blackboxCurrent->servo[5] - blackboxLast->servo[5]);
         }
     }
@@ -1106,6 +1120,8 @@ static void loadMainState(timeUs_t currentTimeUs)
     blackboxCurrent->rssi = getRssi();
 
 #ifdef USE_SERVOS
+    //Servo for bicopters
+    blackboxCurrent->servo[4] = servo[4];
     //Tail servo for tricopters
     blackboxCurrent->servo[5] = servo[5];
 #endif

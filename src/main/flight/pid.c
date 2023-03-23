@@ -128,17 +128,16 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
 #endif // USE_ACRO_TRAINER
 
 #ifdef INVERTED_FLIGHT
-#define FLIP_TIME 0.43f
 #define TRAJ_ORDER 6
 // Iyy/D/(0.45*9.8)
-#define ACC_TO_SERVO_ANGLE 0.008658008658009f
+#define ACC_TO_SERVO_ANGLE 0.00732600732600732f
 float Poly_Coeff[TRAJ_ORDER] = {
-    5.00331225216112e-11,
-    -2.24814698364269e-10,
-    1.27547076873389e-09,
-    395.134095559573,
-    -1378.37475195903,
-    1282.20907159147
+    -5.23598775028111,
+    52.3598774353013,
+    -130.899692993310,
+    327.249231488540,
+    -818.123081194098,
+    818.123083052034,
 };
 #define SERVO_ANGLE_TO_PWM 159.1549430918954f
 #endif
@@ -458,7 +457,7 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile){
     quaternionMultiply(quat_ang_inv, quat_des, quat_diff);
     quaternionToAxisAngle(quat_diff, axisAngle);
     angularRateDesired[FD_ROLL] = RADIANS_TO_DEGREES(axisAngle[0] * axisAngle[3])* pidRuntime.levelGain;
-    angularRateDesired[FD_PITCH] = RADIANS_TO_DEGREES(axisAngle[1] * axisAngle[3]) * pidRuntime.levelGain;// + RADIANS_TO_DEGREES(getFeedForwardFlipAngularRate(micros()));
+    angularRateDesired[FD_PITCH] = RADIANS_TO_DEGREES(axisAngle[1] * axisAngle[3]) * pidRuntime.levelGain + RADIANS_TO_DEGREES(getFeedForwardFlipAngularRate(micros()));
     angularRateDesired[FD_YAW] = RADIANS_TO_DEGREES(axisAngle[2] * axisAngle[3]) * pidRuntime.levelGain;
 }
 #endif
@@ -845,6 +844,8 @@ float sign(float x)
 // Wrap angle in radians to [-pi pi]
 float conv2std(float input_angle)
 {
+    while(input_angle < 0)
+        input_angle += 2*M_PI;
     input_angle += M_PI;
     input_angle = fmod(input_angle, 2*M_PI);
     input_angle -= M_PI;
@@ -1526,6 +1527,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
                 // Log the value of D pre application of TPA
                 preTpaData *= D_LPF_FILT_SCALE;
+                #ifdef INVERTED_FLIGHT
+                float flip_time = (micros() - FlipTriggerTimeMs) * 1e-06;
+                if(axis == FD_PITCH && flip_time >=0 && flip_time <= FLIP_TIME)
+                    pidData[axis].D = 0.1f*pidData[axis].D;
+                #endif
 
                 if (axis == FD_ROLL) {
                     DEBUG_SET(DEBUG_D_LPF, 2, lrintf(preTpaData));
@@ -1570,6 +1576,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 pidData[axis].F = shouldApplyFfLimits(axis) ?
                     applyFfLimit(axis, feedForward, pidRuntime.pidCoefficient[axis].Kp, currentPidSetpoint) : feedForward;
     #else
+                pidData[axis].F = feedForward;
+    #endif
+    #ifdef INVERTED_FLIGHT
                 pidData[axis].F = feedForward;
     #endif
             } else {
@@ -1761,7 +1770,7 @@ float getFeedForwardFlipAngle(timeUs_t t){
 }
 
 float getFeedForwardFlipAngularRate(timeUs_t t){
-    float triggered_time = (t - FlipTriggerTimeMs) * 1e-06;
+    /*float triggered_time = (t - FlipTriggerTimeMs) * 1e-06;
     float FFAngularRate = 0;
     if(triggered_time >= 0 && triggered_time <= FLIP_TIME){
         for(int i = (triggered_time < FLIP_TIME / 2.0f) ? 3 : 1; i < TRAJ_ORDER; i++){
@@ -1769,6 +1778,15 @@ float getFeedForwardFlipAngularRate(timeUs_t t){
         }
         FFAngularRate = FLIP_FORWARD ? FFAngularRate : -FFAngularRate;
         return FFAngularRate;
+    }else{
+        return 0;
+    }*/
+    // Send max FFAngularRate only at the beginning of the flip
+    float FFAngularRateMax = 20.0f;
+    if(FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL){
+        return FFAngularRateMax;
+    }else if(!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED){
+        return FFAngularRateMax;
     }else{
         return 0;
     }

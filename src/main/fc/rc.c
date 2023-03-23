@@ -77,8 +77,9 @@ static float rcCommandYawDivider = 500.0f;
 
 #ifdef INVERTED_FLIGHT
 timeUs_t FlipTriggerTimeMs;
-bool FLIP_FORWARD = false;
 float inverted_flight_angle[XYZ_AXIS_COUNT] = {0,0,0};
+bool FLIP_FORWARD = false;
+enum THROTTLE_DIRECTION throttle_direction = THROTTLE_NORMAL;
 #endif
 
 FAST_DATA_ZERO_INIT uint8_t interpolationChannels;
@@ -827,19 +828,34 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
     // Remap the rcData from 1000-2000 to 1500-2000 for upright flight and 1500-1000 for inverted flight
     if (featureIsEnabled(FEATURE_3D)){
         // Only allow inverted flight when 3D mode is enabled
-        if (attitudeUpright()){
+        /*if (attitudeUpright()){
             rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
         } else {
             // increase the inverted throttle by 50%
-            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.55f;
-        }
+            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.5f;
+        }*/
+        if(throttle_direction == THROTTLE_NORMAL)
+            rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+        else
+            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.5f;
+        // Throttle boost for flip
+        if(FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL)
+            rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.5f;
+        if(!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED)
+            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.6f;
     }
     if(fabs(rcData[AUX6] - rcDataPrevious[AUX6]) >= 600){
         // Add feedforward angle calculation JJJJJJJack
         // Date created: 02/17/2023
         FlipTriggerTimeMs = micros();
         FLIP_FORWARD = !FLIP_FORWARD;
-        inverted_flight_angle[FD_PITCH] = M_PI - inverted_flight_angle[FD_PITCH];
+        inverted_flight_angle[FD_PITCH] = M_PIf - inverted_flight_angle[FD_PITCH];
+    }
+    if(FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.2f){
+        throttle_direction = THROTTLE_REVERSED;
+    }
+    if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.6f){
+        throttle_direction = THROTTLE_NORMAL;
     }
     rcDataPrevious[AUX6] = rcData[AUX6];
     

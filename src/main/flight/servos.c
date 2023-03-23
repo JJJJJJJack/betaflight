@@ -466,7 +466,8 @@ void servoMixer(void)
                     currentOutput[i] = constrain(currentOutput[i] - currentServoMixer[i].speed, input[from], currentOutput[i]);
             }
             #ifdef INVERTED_FLIGHT
-            if(attitudeUpright()){
+            //if(attitudeUpright()){
+            if(throttle_direction == THROTTLE_NORMAL){
             #endif
             servo[target] += servoDirection(target, from) * constrain(((int32_t)currentOutput[i] * currentServoMixer[i].rate) / 100, min, max);
             #ifdef INVERTED_FLIGHT
@@ -480,8 +481,8 @@ void servoMixer(void)
     }
     #ifdef INVERTED_FLIGHT
     // Add feedforward 
-    servo[4] += getFeedForwardFlipServoPWM(micros());  
-    servo[5] += getFeedForwardFlipServoPWM(micros()); 
+    //servo[4] -= getFeedForwardFlipServoPWM(micros())*pidRuntime.pidCoefficient[FD_PITCH].Kf/30.0f;  
+    //servo[5] += getFeedForwardFlipServoPWM(micros())*pidRuntime.pidCoefficient[FD_PITCH].Kf/30.0f; 
     //position_msp.msg4 = servo[4];
     //position_msp.msg5 = servo[5];
     #endif
