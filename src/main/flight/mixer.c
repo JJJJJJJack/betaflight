@@ -877,9 +877,9 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
 #endif
 
     // Calculate and Limit the PID sum
-    const float scaledAxisPidRoll =
+    float scaledAxisPidRoll =
         constrainf(pidData[FD_ROLL].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
-    const float scaledAxisPidPitch =
+    float scaledAxisPidPitch =
         constrainf(pidData[FD_PITCH].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
 
     uint16_t yawPidSumLimit = currentPidProfile->pidSumLimitYaw;
@@ -924,6 +924,12 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
     // Find roll/pitch/yaw desired output
     float motorMix[MAX_SUPPORTED_MOTORS];
     float motorMixMax = 0, motorMixMin = 0;
+    // Bicopter throttle mixing pitch and yaw
+    // Date created: 20230331 by JJJJJJJack
+    if(mixerConfig()->mixerMode == MIXER_BICOPTER){
+        scaledAxisPidPitch = fabs(scaledAxisPidPitch);
+        scaledAxisPidYaw = fabs(scaledAxisPidYaw);
+    }
     for (int i = 0; i < motorCount; i++) {
 
         float mix =

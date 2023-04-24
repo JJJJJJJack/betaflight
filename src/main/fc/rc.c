@@ -834,15 +834,21 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
             // increase the inverted throttle by 50%
             rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.5f;
         }*/
-        if(throttle_direction == THROTTLE_NORMAL)
-            rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
-        else
-            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.5f;
-        // Throttle boost for flip
-        if(FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL)
-            rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.5f;
-        if(!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED)
-            rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.6f;
+        bool THROTTLE_BOOST = false;
+        if((FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL) || (!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED))
+            THROTTLE_BOOST = true;
+        if(THROTTLE_BOOST){
+            // Throttle boost for flip
+            if(FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL)
+                rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 2.0f;
+            if(!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED)
+                rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 2.0f;
+        }else{
+            if(throttle_direction == THROTTLE_NORMAL)
+                rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+            else
+                rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+        }
     }
     if(fabs(rcData[AUX6] - rcDataPrevious[AUX6]) >= 600){
         // Add feedforward angle calculation JJJJJJJack
@@ -854,9 +860,17 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
     if(FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.2f){
         throttle_direction = THROTTLE_REVERSED;
     }
-    if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.6f){
-        throttle_direction = THROTTLE_NORMAL;
+    if(mixerConfig()->mixerMode == MIXER_BICOPTER){
+        if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.2f){
+            throttle_direction = THROTTLE_NORMAL;
+        }
+    }else{
+        // For quad, give it longer throttle boost time
+        if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.3f){
+            throttle_direction = THROTTLE_NORMAL;
+        }
     }
+    
     rcDataPrevious[AUX6] = rcData[AUX6];
     
 #endif

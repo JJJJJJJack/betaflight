@@ -409,6 +409,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
         const float horizonLevelStrength = calcHorizonLevelStrength();
         currentPidSetpoint = currentPidSetpoint + (errorAngle * pidRuntime.horizonGain * horizonLevelStrength);
     }
+    //position_msp.msg2 = angularRateDesired[FD_YAW]*100.0f;
     #ifdef QUATERNION_CONTROL
         return angularRateDesired[axis];
     #endif
@@ -422,7 +423,7 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile){
     float eulerAngleYPR[3], quat_des_RC[4], quat_des[4], quat_ang[4], quat_ang_inv[4], quat_diff[4], axisAngle[4];
     quaternion q_ang = QUATERNION_INITIALIZE;
     arming_state = ARMING_FLAG(ARMED);
-    calc_psi_des(getRcDeflection(FD_YAW), DEGREES_TO_RADIANS(attitude.raw[2]/10.0f), arming_state, previous_arming_state, &Yaw_desire);
+    calc_psi_des(getRcDeflection(FD_YAW), DEGREES_TO_RADIANS(-attitude.raw[2]/10.0f), arming_state, previous_arming_state, &Yaw_desire);
     previous_arming_state = arming_state;
     eulerAngleYPR[0] = conv2std(Yaw_desire);
     eulerAngleYPR[1] = (pidProfile->levelAngleLimit * getRcDeflection(FD_PITCH))/57.3f;
@@ -449,14 +450,27 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile){
         eulerAngleYPR[2] = attitudeUpright() ? eulerAngleYPR[2] : 0 - eulerAngleYPR[2];
     #endif
     eul2quatZYX(eulerAngleYPR, quat_des);
-
+    position_msp.msg1 = eulerAngleYPR[0]*100.0f;
+    
     quaternionNormalize(quat_des, quat_des);
     getQuaternion(&q_ang);
     quat_ang[0] = q_ang.w; quat_ang[1] = q_ang.x; quat_ang[2] = q_ang.y; quat_ang[3] = q_ang.z;
+    position_msp.msg3 = quat_des[0]*100.0f;
+    position_msp.msg4 = quat_des[1]*100.0f;
+    position_msp.msg5 = quat_des[2]*100.0f;
+    position_msp.msg6 = quat_des[3]*100.0f;
+    //position_msp.msg3 = q_ang.w*100.0f;
+    //position_msp.msg4 = q_ang.x*100.0f;
+    //position_msp.msg5 = q_ang.y*100.0f;
+    //position_msp.msg6 = q_ang.z*100.0f;
     quaternionInverse(quat_ang, quat_ang_inv);
     quaternionMultiply(quat_ang_inv, quat_des, quat_diff);
     quaternionToAxisAngle(quat_diff, axisAngle);
     angularRateDesired[FD_ROLL] = RADIANS_TO_DEGREES(axisAngle[0] * axisAngle[3])* pidRuntime.levelGain;
+    if((FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL) || (!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED)){
+        // When throttle boost, disable attitude error, use rate only
+        axisAngle[1] = 0;
+    }
     angularRateDesired[FD_PITCH] = RADIANS_TO_DEGREES(axisAngle[1] * axisAngle[3]) * pidRuntime.levelGain + RADIANS_TO_DEGREES(getFeedForwardFlipAngularRate(micros()));
     angularRateDesired[FD_YAW] = RADIANS_TO_DEGREES(axisAngle[2] * axisAngle[3]) * pidRuntime.levelGain;
 }
@@ -870,12 +884,16 @@ void calc_psi_des(float psi_sp_diff, float psi_current,  bool armed, bool  armed
   if((armed_prev != armed) && armed) {
     /*  if ARMed */
     *psi_des = psi;
+    #ifdef INVERTED_FLIGHT
+    if(!attitudeUpright())
+        *psi_des = conv2std(*psi_des + M_PI);
+    #endif
   }
   
   if (fabs(psi_sp_diff) >= 0.01){
     /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
     //float psi_integral = psi + psi_sp_diff;
-    *psi_des += psi_sp_diff*0.005f;
+    *psi_des += psi_sp_diff*0.01f;
   }
 }
 
@@ -1436,9 +1454,15 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             // --------low-level gyro-based PID based on 2DOF PID controller. ----------
             // 2-DOF PID controller with optional filter on derivative term.
             // b = 1 and only c (feedforward weight) can be tuned (amount derivative on measurement or error).
-
+            
             // -----calculate P component
             pidData[axis].P = pidRuntime.pidCoefficient[axis].Kp * errorRate * tpaFactorKp;
+            // Increase P gain for bicopter in reversed flight
+            /*if(mixerConfig()->mixerMode == MIXER_BICOPTER && FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED){
+                if(axis == FD_PITCH || axis == FD_YAW){
+                    pidData[axis].P = pidRuntime.pidCoefficient[axis].Kp * 1.2f * errorRate * tpaFactorKp;
+                }
+            }*/
             if (axis == FD_YAW) {
                 pidData[axis].P = pidRuntime.ptermYawLowpassApplyFn((filter_t *) &pidRuntime.ptermYawLowpass, pidData[axis].P);
             }
@@ -1494,6 +1518,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 const float delta =
                     - (gyroRateDterm[axis] - previousGyroRateDterm[axis]) * pidRuntime.pidFrequency;
                 float preTpaData = pidRuntime.pidCoefficient[axis].Kd * delta;
+                // Increase P gain for bicopter in reversed flight
+                /*if(mixerConfig()->mixerMode == MIXER_BICOPTER && FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED){
+                    if(axis == FD_PITCH || axis == FD_YAW){
+                        preTpaData = pidRuntime.pidCoefficient[axis].Kd * delta * 1.3f;
+                    }
+                }*/
 
     #if defined(USE_ACC)
                 if (cmpTimeUs(currentTimeUs, levelModeStartTimeUs) > CRASH_RECOVERY_DETECTION_DELAY_US) {
@@ -1529,8 +1559,10 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 preTpaData *= D_LPF_FILT_SCALE;
                 #ifdef INVERTED_FLIGHT
                 float flip_time = (micros() - FlipTriggerTimeMs) * 1e-06;
-                if(axis == FD_PITCH && flip_time >=0 && flip_time <= FLIP_TIME)
-                    pidData[axis].D = 0.1f*pidData[axis].D;
+                if(flip_time >=0 && flip_time <= FLIP_TIME){
+                    pidData[FD_PITCH].D = 0.1f*pidData[FD_PITCH].D;
+                    pidResetIterm();
+                }
                 #endif
 
                 if (axis == FD_ROLL) {
@@ -1782,7 +1814,9 @@ float getFeedForwardFlipAngularRate(timeUs_t t){
         return 0;
     }*/
     // Send max FFAngularRate only at the beginning of the flip
-    float FFAngularRateMax = 20.0f;
+    float FFAngularRateMax = 10.0f;
+    if(mixerConfig()->mixerMode == MIXER_BICOPTER)
+        FFAngularRateMax = 20.0f;
     if(FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL){
         return FFAngularRateMax;
     }else if(!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED){
