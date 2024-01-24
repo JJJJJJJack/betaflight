@@ -608,7 +608,7 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
             currentThrottleInputRange = rcCommandThrottleRange3dLow;
         } else {
             #ifdef INVERTED_FLIGHT
-            if(attitudeUpright()){
+            if(throttle_direction == THROTTLE_NORMAL){
             #endif
                 // NORMAL_TO_DEADBAND
                 motorRangeMin = deadbandMotor3dHigh;

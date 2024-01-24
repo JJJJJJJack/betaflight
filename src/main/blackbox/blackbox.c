@@ -494,7 +494,7 @@ static bool testBlackboxConditionUncached(FlightLogFieldCondition condition)
         return sensors(SENSOR_ACC) && isFieldEnabled(FIELD_SELECT(ACC));
 
     case CONDITION(DEBUG_LOG):
-        return (debugMode != DEBUG_NONE) && isFieldEnabled(FIELD_SELECT(DEBUG_LOG));
+        return true;//(debugMode != DEBUG_NONE) && isFieldEnabled(FIELD_SELECT(DEBUG_LOG));
 
     case CONDITION(NEVER):
         return false;

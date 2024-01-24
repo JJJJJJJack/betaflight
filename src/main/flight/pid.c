@@ -450,15 +450,20 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile){
         eulerAngleYPR[2] = attitudeUpright() ? eulerAngleYPR[2] : 0 - eulerAngleYPR[2];
     #endif
     eul2quatZYX(eulerAngleYPR, quat_des);
-    position_msp.msg1 = eulerAngleYPR[0]*100.0f;
     
     quaternionNormalize(quat_des, quat_des);
     getQuaternion(&q_ang);
+    // Logging quaternion through blackbox debug
+    // Date created 05/17/2023
+    debug[0] = q_ang.w*1e4f;
+    debug[1] = q_ang.x*1e4f;
+    debug[2] = q_ang.y*1e4f;
+    debug[3] = q_ang.z*1e4f;
     quat_ang[0] = q_ang.w; quat_ang[1] = q_ang.x; quat_ang[2] = q_ang.y; quat_ang[3] = q_ang.z;
-    position_msp.msg3 = quat_des[0]*100.0f;
-    position_msp.msg4 = quat_des[1]*100.0f;
-    position_msp.msg5 = quat_des[2]*100.0f;
-    position_msp.msg6 = quat_des[3]*100.0f;
+    //position_msp.msg3 = quat_des[0]*100.0f;
+    //position_msp.msg4 = quat_des[1]*100.0f;
+    //position_msp.msg5 = quat_des[2]*100.0f;
+    //position_msp.msg6 = quat_des[3]*100.0f;
     //position_msp.msg3 = q_ang.w*100.0f;
     //position_msp.msg4 = q_ang.x*100.0f;
     //position_msp.msg5 = q_ang.y*100.0f;
@@ -467,12 +472,29 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile){
     quaternionMultiply(quat_ang_inv, quat_des, quat_diff);
     quaternionToAxisAngle(quat_diff, axisAngle);
     angularRateDesired[FD_ROLL] = RADIANS_TO_DEGREES(axisAngle[0] * axisAngle[3])* pidRuntime.levelGain;
-    if((FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL) || (!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED)){
-        // When throttle boost, disable attitude error, use rate only
+    //if((FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL) || (!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED)){
+    // When throttle boost, disable attitude error, use rate only
+    #ifdef INVERTED_FLIGHT
+    if((micros() - FlipTriggerTimeMs) * 1e-06f <= (FLIP_FORWARD?ANGLE_RECOVER_TIME_FORWARD:ANGLE_RECOVER_TIME_BACKWARD)){
+
+        // Disable angle control for angular rate feedforward
         axisAngle[1] = 0;
     }
-    angularRateDesired[FD_PITCH] = RADIANS_TO_DEGREES(axisAngle[1] * axisAngle[3]) * pidRuntime.levelGain + RADIANS_TO_DEGREES(getFeedForwardFlipAngularRate(micros()));
-    angularRateDesired[FD_YAW] = RADIANS_TO_DEGREES(axisAngle[2] * axisAngle[3]) * pidRuntime.levelGain;
+    #endif
+    angularRateDesired[FD_PITCH] = RADIANS_TO_DEGREES(axisAngle[1] * axisAngle[3]) * pidRuntime.levelGain;
+    #ifdef INVERTED_FLIGHT
+    angularRateDesired[FD_PITCH] += RADIANS_TO_DEGREES(getFeedForwardFlipAngularRate(micros()));
+    #endif
+    //Reduce the yaw gain for bicopter
+    angularRateDesired[FD_YAW] = RADIANS_TO_DEGREES(axisAngle[2] * axisAngle[3]) * 1.2f;
+    #ifdef INVERTED_FLIGHT
+    // Temporarily disable yaw control in flip
+    float flip_time = (micros() - FlipTriggerTimeMs) * 1e-06;
+    if(flip_time >= 0 && flip_time <= FLIP_DISABLE_ROLLYAW_TIME){
+        angularRateDesired[FD_YAW] = 0;
+    }
+    #endif
+
 }
 #endif
 
@@ -893,7 +915,7 @@ void calc_psi_des(float psi_sp_diff, float psi_current,  bool armed, bool  armed
   if (fabs(psi_sp_diff) >= 0.01){
     /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
     //float psi_integral = psi + psi_sp_diff;
-    *psi_des += psi_sp_diff*0.01f;
+    *psi_des += psi_sp_diff*0.005f;
   }
 }
 
@@ -1559,9 +1581,16 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 preTpaData *= D_LPF_FILT_SCALE;
                 #ifdef INVERTED_FLIGHT
                 float flip_time = (micros() - FlipTriggerTimeMs) * 1e-06;
-                if(flip_time >=0 && flip_time <= FLIP_TIME){
-                    pidData[FD_PITCH].D = 0.1f*pidData[FD_PITCH].D;
+                if(flip_time >= 0 && flip_time <= (FLIP_FORWARD?FLIP_TIME_FORWARD:FLIP_TIME_BACKWARD)){
+                    //pidData[FD_PITCH].D = 0.1f*pidData[FD_PITCH].D;
                     pidResetIterm();
+                }
+
+                if(FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED && flip_time >= (FLIP_FORWARD?FLIP_TIME_FORWARD:FLIP_TIME_BACKWARD)){
+                    pidData[FD_PITCH].D = 2.0f*pidData[FD_PITCH].D;
+                    pidData[FD_PITCH].P = 1.5f*pidData[FD_PITCH].P;
+                    //pidData[FD_YAW].D = 1.3f*pidData[FD_YAW].D;
+                    //pidData[FD_YAW].P = 1.3f*pidData[FD_YAW].P;
                 }
                 #endif
 
@@ -1813,6 +1842,7 @@ float getFeedForwardFlipAngularRate(timeUs_t t){
     }else{
         return 0;
     }*/
+    /* 20230721 Good code reserved
     // Send max FFAngularRate only at the beginning of the flip
     float FFAngularRateMax = 10.0f;
     if(mixerConfig()->mixerMode == MIXER_BICOPTER)
@@ -1824,18 +1854,35 @@ float getFeedForwardFlipAngularRate(timeUs_t t){
     }else{
         return 0;
     }
+    */
+    float FFAngularRate = 0;
+    float triggered_time = (t - FlipTriggerTimeMs) * 1e-06;
+    float ANG_RATE_UP_TIME = (FLIP_FORWARD ? FLIP_TIME_FORWARD : FLIP_TIME_BACKWARD) - M_PI/(FLIP_FORWARD?THETA_DOT_MAX_FORWARD:THETA_DOT_MAX_BACKWARD);
+    float ANG_RATE_MAX_TIME = (FLIP_FORWARD ? FLIP_TIME_FORWARD : FLIP_TIME_BACKWARD) - 2.0f*ANG_RATE_UP_TIME;
+    if(triggered_time >= 0 && triggered_time <= (FLIP_FORWARD ? ANGLE_RECOVER_TIME_FORWARD : ANGLE_RECOVER_TIME_BACKWARD)){
+        if(triggered_time <= ANG_RATE_UP_TIME){
+            FFAngularRate = triggered_time*(FLIP_FORWARD?THETA_DOT_MAX_FORWARD:THETA_DOT_MAX_BACKWARD)/ANG_RATE_UP_TIME;
+        }else if(triggered_time <= ANG_RATE_UP_TIME + ANG_RATE_MAX_TIME){
+            FFAngularRate = (FLIP_FORWARD?THETA_DOT_MAX_FORWARD:THETA_DOT_MAX_BACKWARD);
+        }else if(triggered_time <= ANG_RATE_UP_TIME*2.0f + ANG_RATE_MAX_TIME){
+            FFAngularRate = (FLIP_FORWARD?THETA_DOT_MAX_FORWARD:THETA_DOT_MAX_BACKWARD) - (triggered_time - (ANG_RATE_UP_TIME + ANG_RATE_MAX_TIME))*(FLIP_FORWARD?THETA_DOT_MAX_FORWARD:THETA_DOT_MAX_BACKWARD)/ANG_RATE_UP_TIME;
+        }
+        return FFAngularRate;
+    }else{
+        return 0;
+    }
 }
 
 float getFeedForwardFlipAngularAcc(timeUs_t t){
     float triggered_time = (t - FlipTriggerTimeMs) * 1e-06;
     float FFAngularACC = 0;
-    if(triggered_time >= 0 && triggered_time <= FLIP_TIME){
-        for(int i = (triggered_time < FLIP_TIME / 2.0f) ? 3 : 2; i < TRAJ_ORDER; i++){
+    if(triggered_time >= 0 && triggered_time <= (FLIP_FORWARD ? FLIP_TIME_FORWARD : FLIP_TIME_BACKWARD)){
+        for(int i = (triggered_time < (FLIP_FORWARD ? FLIP_TIME_FORWARD : FLIP_TIME_BACKWARD) / 2.0f) ? 3 : 2; i < TRAJ_ORDER; i++){
             FFAngularACC += i * (i-1) * Poly_Coeff[i] * pow(triggered_time, i-2);
         }
         if(mixerConfig()->mixerMode == MIXER_BICOPTER){
             // Reverse the second half ACC to make sure it continous in time
-            if(triggered_time < FLIP_TIME / 2.0f)
+            if(triggered_time < (FLIP_FORWARD ? FLIP_TIME_FORWARD : FLIP_TIME_BACKWARD) / 2.0f)
                 FFAngularACC = FLIP_FORWARD ? FFAngularACC : -FFAngularACC;
             else
                 FFAngularACC = FLIP_FORWARD ? -FFAngularACC : FFAngularACC;

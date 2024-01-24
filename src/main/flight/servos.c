@@ -127,8 +127,10 @@ static const servoMixer_t servoMixerTri[] = {
 static const servoMixer_t servoMixerBI[] = {
     { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,   100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
+    //{ SERVO_BICOPTER_LEFT, INPUT_STABILIZED_ROLL,  -16, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,  100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
+    //{ SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_ROLL, -16, 0, 0, 100, 0 },
 };
 
 static const servoMixer_t servoMixerDual[] = {
@@ -490,8 +492,8 @@ void servoMixer(void)
         servo[i] = ((int32_t)servoParams(i)->rate * servo[i]) / 100L;
         servo[i] += determineServoMiddleOrForwardFromChannel(i);
     }
-    //position_msp.msg3 = servo[4];
-    //position_msp.msg4 = servo[5];
+    position_msp.msg3 = servo[4];
+    position_msp.msg4 = servo[5];
 }
 
 

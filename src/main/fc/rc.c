@@ -834,6 +834,7 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
             // increase the inverted throttle by 50%
             rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.5f;
         }*/
+        /* 20230721 Good code reserved
         bool THROTTLE_BOOST = false;
         if((FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL) || (!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED))
             THROTTLE_BOOST = true;
@@ -842,6 +843,17 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
             if(FLIP_FORWARD && throttle_direction == THROTTLE_NORMAL)
                 rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 2.0f;
             if(!FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED)
+                rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.6f;
+        }else{
+            if(throttle_direction == THROTTLE_NORMAL)
+                rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+            else
+                rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
+        }*/
+        if((micros() - FlipTriggerTimeMs) * 1e-06f <= (FLIP_FORWARD?THROTTLE_BOOST_TIME_FORWARD:THROTTLE_BOOST_TIME_BACKWARD)){
+            if(throttle_direction == THROTTLE_NORMAL)
+                rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 2.0f;
+            else
                 rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 2.0f;
         }else{
             if(throttle_direction == THROTTLE_NORMAL)
@@ -857,11 +869,12 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
         FLIP_FORWARD = !FLIP_FORWARD;
         inverted_flight_angle[FD_PITCH] = M_PIf - inverted_flight_angle[FD_PITCH];
     }
+    /*
     if(FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.2f){
         throttle_direction = THROTTLE_REVERSED;
     }
     if(mixerConfig()->mixerMode == MIXER_BICOPTER){
-        if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.2f){
+        if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.16f){
             throttle_direction = THROTTLE_NORMAL;
         }
     }else{
@@ -869,6 +882,14 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
         if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= FLIP_TIME*0.3f){
             throttle_direction = THROTTLE_NORMAL;
         }
+    }*/
+    position_msp.msg1 = FLIP_FORWARD;
+    position_msp.msg2 = throttle_direction;
+    if(FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= THRUST_REVERSE_TIME_FORWARD){
+        throttle_direction = THROTTLE_REVERSED;
+    }
+    if(!FLIP_FORWARD && (micros() - FlipTriggerTimeMs) * 1e-06f >= THRUST_REVERSE_TIME_BACKWARD){
+        throttle_direction = THROTTLE_NORMAL;
     }
     
     rcDataPrevious[AUX6] = rcData[AUX6];
