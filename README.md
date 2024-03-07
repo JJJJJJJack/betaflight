@@ -34,6 +34,17 @@ resource SERVO 2 A08
 save
 ```
 
+### Half-flip Setup
+In Betaflight Configurator, set the CLI as
+```
+# Disable runway takeoff check especially when testing on test stand
+set runway_takeoff_prevention=off
+# Turn off RC interpretation for throttle since it needs to go reverse
+set rc_interp_ch=RPY
+```
+The motor 3D needs to be turned off for BLHeli setup. Turn 3D back on after setting the ESC. In BLHeli software, set "Low RPM Power Protect" to off.
+
+
 ## OMNIBUSF4SD(OBSD)
 ### Flashing
 
