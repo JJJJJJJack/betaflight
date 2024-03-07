@@ -30,6 +30,9 @@
 extern timeUs_t FlipTriggerTimeMs;
 extern bool FLIP_FORWARD;
 extern float inverted_flight_angle[XYZ_AXIS_COUNT];
+
+/*********RAL Bicopter FLIP parameter*********
+ * 
 #define FLIP_DISABLE_ROLLYAW_TIME 0.45f
 #define FLIP_TIME_FORWARD 0.2901f                 
 #define THETA_DOT_MAX_FORWARD 20.4846f
@@ -41,6 +44,19 @@ extern float inverted_flight_angle[XYZ_AXIS_COUNT];
 #define THRUST_REVERSE_TIME_BACKWARD 0.120f
 #define ANGLE_RECOVER_TIME_BACKWARD 0.349f
 #define THROTTLE_BOOST_TIME_BACKWARD 0.120f
+***********************************************/
+#define FLIP_DISABLE_ROLLYAW_TIME 1.0f
+#define FLIP_TIME_FORWARD 1.2f                 
+#define THETA_DOT_MAX_FORWARD 10.0f
+#define THRUST_REVERSE_TIME_FORWARD 0.6f
+#define ANGLE_RECOVER_TIME_FORWARD 0.9f
+#define THROTTLE_BOOST_TIME_FORWARD 0.6f
+#define FLIP_TIME_BACKWARD 0.6f                  
+#define THETA_DOT_MAX_BACKWARD 10.165f
+#define THRUST_REVERSE_TIME_BACKWARD 0.3f
+#define ANGLE_RECOVER_TIME_BACKWARD 0.5f
+#define THROTTLE_BOOST_TIME_BACKWARD 0.3f
+
 enum THROTTLE_DIRECTION {
     THROTTLE_NORMAL = 0,
     THROTTLE_REVERSED,
