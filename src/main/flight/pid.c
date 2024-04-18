@@ -1587,8 +1587,8 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 }
 
                 if(FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED && flip_time >= (FLIP_FORWARD?FLIP_TIME_FORWARD:FLIP_TIME_BACKWARD)){
-                    pidData[FD_PITCH].D = 2.0f*pidData[FD_PITCH].D;
-                    pidData[FD_PITCH].P = 1.5f*pidData[FD_PITCH].P;
+                    pidData[FD_PITCH].D = 1.8f*pidData[FD_PITCH].D;
+                    pidData[FD_PITCH].P = 1.8f*pidData[FD_PITCH].P;
                     //pidData[FD_YAW].D = 1.3f*pidData[FD_YAW].D;
                     //pidData[FD_YAW].P = 1.3f*pidData[FD_YAW].P;
                 }

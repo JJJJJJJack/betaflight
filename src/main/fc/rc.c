@@ -852,9 +852,9 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
         }*/
         if((micros() - FlipTriggerTimeMs) * 1e-06f <= (FLIP_FORWARD?THROTTLE_BOOST_TIME_FORWARD:THROTTLE_BOOST_TIME_BACKWARD)){
             if(throttle_direction == THROTTLE_NORMAL)
-                rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 2.0f;
+                rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.1f;
             else
-                rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 2.0f;
+                rcCommand[THROTTLE] = rxConfig()->midrc - (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f * 1.1f;
         }else{
             if(throttle_direction == THROTTLE_NORMAL)
                 rcCommand[THROTTLE] = rxConfig()->midrc + (rcCommand[THROTTLE] - PWM_RANGE_MIN) / 2.0f;
