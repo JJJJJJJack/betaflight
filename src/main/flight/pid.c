@@ -1587,10 +1587,13 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 }
 
                 if(FLIP_FORWARD && throttle_direction == THROTTLE_REVERSED && flip_time >= (FLIP_FORWARD?FLIP_TIME_FORWARD:FLIP_TIME_BACKWARD)){
-                    pidData[FD_PITCH].D = 1.8f*pidData[FD_PITCH].D;
-                    pidData[FD_PITCH].P = 1.8f*pidData[FD_PITCH].P;
-                    //pidData[FD_YAW].D = 1.3f*pidData[FD_YAW].D;
-                    //pidData[FD_YAW].P = 1.3f*pidData[FD_YAW].P;
+                    // For pure bi-copter set PID gain boost to 200%
+                    // The following value is for Tailsitter
+                    pidData[FD_PITCH].D = 0.96f*pidData[FD_PITCH].D;
+                    pidData[FD_PITCH].P = 1.08f*pidData[FD_PITCH].P;
+                    pidData[FD_YAW].D = 0.45f*pidData[FD_YAW].D;
+                    pidData[FD_YAW].P = 0.4f*pidData[FD_YAW].P;
+                    pidData[FD_YAW].I = 0.2f*pidData[FD_YAW].I;
                 }
                 #endif
 
